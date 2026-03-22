@@ -12,7 +12,7 @@ class Actions(Enum):
 class DroneNetEnv(gym.Env):
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 4}
 
-    def __init__(self, render_mode=None, marker_size=5, size=512):
+    def __init__(self, render_mode=None, marker_size=5, size=512, max_steps=1000):
         self.size = size  # The size of the environment
         self.marker_size = marker_size # The size of the markers
         self.window_size = 512  # The size of the PyGame window
@@ -41,7 +41,9 @@ class DroneNetEnv(gym.Env):
         self.clock = None
 
         self.net_cone_start = 5
-        self.net_cone_end = 20
+        self.net_cone_end = 10
+
+        self.max_steps = max_steps
 
 
     def _get_obs(self):
@@ -69,11 +71,16 @@ class DroneNetEnv(gym.Env):
         if self.render_mode == "human":
             self._render_frame()
 
+        self.timestep = 0
+
         return observation, info
 
     def step(self, action):
 
+        self.timestep += 1
+
         terminated = False
+        truncated = False
 
         direction = np.sign(self._target_location - self._agent_location)
         self.target_direction = np.clip(self.np_random.normal(
@@ -89,11 +96,16 @@ class DroneNetEnv(gym.Env):
             self._target_location + self.target_direction, 0, self.size - 1
         )
 
+        if self.timestep >= self.max_steps:
+            truncated = True
+
         if action == Actions.do_shoot.value:
             distance = self._target_location - self._agent_location
             if distance >= self.net_cone_start and distance <= self.net_cone_end:
                 terminated = True
                 reward = 1
+            elif truncated:
+                reward = -1
             else:
                 reward = -1
         else:
@@ -105,7 +117,7 @@ class DroneNetEnv(gym.Env):
         if self.render_mode == "human":
             self._render_frame()
 
-        return observation, reward, terminated, False, info
+        return observation, reward, terminated, truncated, info
 
     def render(self):
         if self.render_mode == "rgb_array":
