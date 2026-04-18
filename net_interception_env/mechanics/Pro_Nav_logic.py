@@ -1,5 +1,5 @@
 import numpy as np
-import Constraints
+from net_interception_env.mechanics import Constraints
 
 def get_tpn_acceleration(v_pursuer, v_target, r_pursuer, r_target):
     relative_velocity = v_target - v_pursuer

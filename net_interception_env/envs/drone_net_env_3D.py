@@ -47,7 +47,7 @@ class DroneNetEnv(gym.Env):
 
 
     def _get_obs(self):
-        return {"distance": np.linalg.norm(self.target_location - self.pursuer_location)}
+        return {"distance": np.array([np.linalg.norm(self.target_location - self.pursuer_location)], dtype=np.float32)}
 
     def _get_info(self):
         return {"pursuer location": self.pursuer_location,
