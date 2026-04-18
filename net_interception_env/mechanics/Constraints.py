@@ -1,0 +1,1 @@
+N = 3 # Pro-Nav constant
