@@ -3,7 +3,7 @@ import gymnasium as gym
 from gymnasium import spaces
 import pygame
 import numpy as np
-from net_interception_env.mechanics import Pro_Nav_logic as tpn, Constraints
+from net_interception_env.mechanics import Pro_Nav_logic as tpn, Constraints, Pro_Nav_logic
 
 
 class Actions(Enum):
@@ -21,6 +21,11 @@ class DroneNetEnv(gym.Env):
         self.observation_space = spaces.Dict(
             {
                 "distance": spaces.Box(0, size * np.sqrt(3), shape=(1,)),
+                "closing velocity": spaces.Box(
+                    -(Constraints.MAX_UAV_SPEED+Constraints.MAX_TARGET_SPEED+1),
+                    Constraints.MAX_UAV_SPEED+Constraints.MAX_TARGET_SPEED+1,
+                    shape=(1,)
+                ),
             }
         )
 
@@ -40,14 +45,12 @@ class DroneNetEnv(gym.Env):
         self.window = None
         self.clock = None
 
-        self.net_cone_start = 5
-        self.net_cone_end = 50
-
         self.max_steps = max_steps
 
 
     def _get_obs(self):
-        return {"distance": np.array([np.linalg.norm(self.target_location - self.pursuer_location)], dtype=np.float32)}
+        return {"distance": np.array([np.linalg.norm(self.target_location - self.pursuer_location)], dtype=np.float32),
+                "closing velocity": np.array([np.linalg.norm(self.target_velocity - self.pursuer_velocity)], dtype=np.float32)}
 
     def _get_info(self):
         return {"pursuer location": self.pursuer_location,
@@ -64,6 +67,7 @@ class DroneNetEnv(gym.Env):
         self.pursuer_velocity = self.np_random.uniform(
             -Constraints.MAX_UAV_SPEED, Constraints.MAX_UAV_SPEED, size=3
         ).astype(np.float32)
+
         # The target's location and velocity are chosen the same way
         self.target_location = self.np_random.uniform(0, self.size, size=3).astype(np.float32)
         self.target_velocity = self.np_random.uniform(
@@ -72,6 +76,9 @@ class DroneNetEnv(gym.Env):
         self.target_acceleration = self.np_random.uniform(
             -Constraints.MAX_TARGET_ACCELERATION, Constraints.MAX_TARGET_ACCELERATION, size=3
         ).astype(np.float32)
+
+        # The interceptor is carrying a net
+        self.separate_flight = False
 
         observation = self._get_obs()
         info = self._get_info()
@@ -122,16 +129,29 @@ class DroneNetEnv(gym.Env):
         if self.timestep >= self.max_steps:
             truncated = True
 
-        if action == Actions.do_shoot.value:
-            distance = np.linalg.norm(self.target_location - self.pursuer_location)
-            if distance >= self.net_cone_start and distance <= self.net_cone_end:
+        if action == Actions.do_shoot.value and not self.separate_flight:
+            self.net_location = self.pursuer_location.copy()
+            self.net_radius = 0.1  # m
+            self.separate_flight = True
+            self.net_direction = self.pursuer_velocity / np.linalg.norm(self.pursuer_velocity)
+            self.net_velocity = self.pursuer_velocity + self.net_direction*Constraints.EXTRA_VELOCITY
+
+        if self.separate_flight:
+            self.net_location, _, self.net_radius = Pro_Nav_logic.get_new_location(
+                0, self.net_velocity, self.net_location, old_radius=self.net_radius
+            )
+            net_to_target = self.target_location - self.net_location
+            net_to_target_projection = np.dot(self.net_direction, net_to_target)
+            target_offset = max(0.0, np.linalg.norm(net_to_target)**2 - net_to_target_projection**2)
+            if -0.1 < net_to_target_projection < 0.1 and target_offset < self.net_radius:
                 terminated = True
                 reward = 10
-            else:
+            elif net_to_target_projection < -0.1:
                 terminated = True
                 reward = -1
-        elif truncated:
+            elif truncated:
                 reward = -1
+
 
         observation = self._get_obs()
         info = self._get_info()

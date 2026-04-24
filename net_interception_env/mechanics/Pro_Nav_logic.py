@@ -22,7 +22,7 @@ def get_tpn_acceleration(v_pursuer, v_target, r_pursuer, r_target):
 
     return acceleration
 
-def get_new_location(acceleration, old_v, old_r, max_speed):
+def get_new_location(acceleration, old_v, old_r, max_speed=1000, old_radius=0):
 
     # Semi-implicit Euler integration
 
@@ -30,8 +30,9 @@ def get_new_location(acceleration, old_v, old_r, max_speed):
     if np.linalg.norm(velocity) > max_speed:
         velocity = velocity / np.linalg.norm(velocity) * max_speed
     position = old_r + Constraints.dt * velocity
+    radius = old_radius + Constraints.dt * velocity * Constraints.EXPANSION_RATE
 
-    return position, velocity
+    return position, velocity, radius
 
 def target_accelaration(old_a):
 
