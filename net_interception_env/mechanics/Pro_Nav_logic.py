@@ -4,21 +4,22 @@ from net_interception_env.mechanics import Constraints
 def get_tpn_acceleration(v_pursuer, v_target, r_pursuer, r_target):
     relative_velocity = v_target - v_pursuer
     r = r_target - r_pursuer
-    closing_velocity = np.linalg.norm(np.dot(relative_velocity, r))
 
     if np.linalg.norm(r) > 1e-6:
-        if np.linalg.norm(v_pursuer) > 1e-6:
+        closing_velocity = -np.dot(relative_velocity, r) / np.linalg.norm(r)
+        if np.linalg.norm(v_pursuer) > 1e-2:
             heading = v_pursuer / np.linalg.norm(v_pursuer)
         else:
             heading = r / np.linalg.norm(r)
 
-        los_rot_rate = np.cross(r, relative_velocity) / np.dot(r, r)
-        acceleration = - Constraints.N * closing_velocity * np.cross(heading, los_rot_rate)
+        dist = np.linalg.norm(r)
+        los_rot_rate = np.cross(r, relative_velocity) / (dist ** 2)
+        acceleration = - Constraints.N * np.linalg.norm(v_pursuer) * np.cross(heading, los_rot_rate)
     else:
         acceleration = np.zeros(3)
 
     if np.linalg.norm(acceleration) > Constraints.MAX_UAV_ACCELERATION:
-        acceleration = acceleration / np.linalg.norm(acceleration) * Constraints.MAX_UAV_ACCELERATION
+        acceleration = acceleration / closing_velocity * Constraints.MAX_UAV_ACCELERATION
 
     return acceleration
 
@@ -30,7 +31,8 @@ def get_new_location(acceleration, old_v, old_r, max_speed=1000, old_radius=0):
     if np.linalg.norm(velocity) > max_speed:
         velocity = velocity / np.linalg.norm(velocity) * max_speed
     position = old_r + Constraints.dt * velocity
-    radius = old_radius + Constraints.dt * velocity * Constraints.EXPANSION_RATE
+    speed = np.linalg.norm(velocity)
+    radius = old_radius + Constraints.dt * speed * Constraints.EXPANSION_RATE
 
     return position, velocity, radius
 

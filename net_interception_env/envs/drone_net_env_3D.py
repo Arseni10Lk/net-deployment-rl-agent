@@ -20,11 +20,12 @@ class DroneNetEnv(gym.Env):
 
         self.observation_space = spaces.Dict(
             {
-                "distance": spaces.Box(0, size * np.sqrt(3), shape=(1,)),
+                "distance": spaces.Box(0, size * np.sqrt(3), shape=(1,), dtype=np.float32),
                 "closing velocity": spaces.Box(
                     -(Constraints.MAX_UAV_SPEED+Constraints.MAX_TARGET_SPEED+1),
                     Constraints.MAX_UAV_SPEED+Constraints.MAX_TARGET_SPEED+1,
-                    shape=(1,)
+                    shape=(1,),
+                    dtype=np.float32
                 ),
             }
         )
@@ -106,7 +107,7 @@ class DroneNetEnv(gym.Env):
             self.pursuer_location, self.target_location
         )
 
-        uav_location, self.pursuer_velocity = tpn.get_new_location(
+        uav_location, self.pursuer_velocity, _ = tpn.get_new_location(
             uav_acceleration, self.pursuer_velocity, self.pursuer_location, Constraints.MAX_UAV_SPEED
         )
 
@@ -118,7 +119,7 @@ class DroneNetEnv(gym.Env):
 
         self.target_acceleration = tpn.target_accelaration(self.target_acceleration)
 
-        new_target_location, self.target_velocity = tpn.get_new_location(
+        new_target_location, self.target_velocity, _ = tpn.get_new_location(
             self.target_acceleration, self.target_velocity, self.target_location, Constraints.MAX_TARGET_SPEED
         )
 
@@ -142,7 +143,7 @@ class DroneNetEnv(gym.Env):
             )
             net_to_target = self.target_location - self.net_location
             net_to_target_projection = np.dot(self.net_direction, net_to_target)
-            target_offset = max(0.0, np.linalg.norm(net_to_target)**2 - net_to_target_projection**2)
+            target_offset = np.sqrt(max(0.0, np.linalg.norm(net_to_target)**2 - net_to_target_projection**2))
             if -0.1 < net_to_target_projection < 0.1 and target_offset < self.net_radius:
                 terminated = True
                 reward = 10

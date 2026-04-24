@@ -24,7 +24,10 @@ while running:
     obs, reward, terminated, truncated, info = visual_env.step(action)
     if terminated:
         running = False
-        print("The target was successfully reached!")
+        if reward > 0:
+            print("The target was successfully reached!")
+        else:
+            print("The target was missed!")
     elif truncated:
         running = False
         print("The simulation timed out")
