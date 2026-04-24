@@ -12,7 +12,26 @@ model.save("dqn_drone3D")
 
 env.close()
 
-print("Training finished! Booting up visual mode...")
+# RESULT VERIFICATION
+test_env = gym.make("DroneNet-3D")
+success = 0
+num_episodes = 100
+
+for ep in range(num_episodes):
+    obs, info = test_env.reset()
+    running = True
+    while running:
+        action, _states = model.predict(obs, deterministic=True)
+        obs, reward, terminated, truncated, info = test_env.step(action)
+        if terminated:
+            running = False
+            if reward > 0:
+                success += 1
+        elif truncated:
+            running = False
+
+accuracy = (success / num_episodes) * 100
+print(f"Evaluation finished! Accuracy: {accuracy:.2f}% ({success}/{num_episodes})")
 
 # --- VISUAL WATCHING ---
 visual_env = gym.make("DroneNet-3D", render_mode="human")
