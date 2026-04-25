@@ -2,7 +2,7 @@ The goal of the project is to train an RL model to choose an optimal moment for 
 
 The model has a discrete output (to shoot or not to shoot), guidance is taken care of by a True Pro-Nav algorithm.
 
-The program uses Gymnasium for training.
+This environment is built using Gymnasium and trained using Stable-Baselines3.
 
 ## Installation
 

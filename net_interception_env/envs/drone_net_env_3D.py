@@ -187,11 +187,11 @@ class DroneNetEnv(gym.Env):
 
             net_speed = np.linalg.norm(self.net_velocity)
             step_distance = net_speed * Constraints.dt
-            print(f"Step distance: {step_distance}\n"
-                  f"target_offset: {target_offset}\n"
-                  f"net_speed: {net_speed}\n"
-                  f"net_to_target: {net_to_target_projection}\n"
-                  f"net_radius: {self.net_radius}")
+            # print(f"Step distance: {step_distance}\n"
+            #       f"target_offset: {target_offset}\n"
+            #       f"net_speed: {net_speed}\n"
+            #       f"net_to_target: {net_to_target_projection}\n"
+            #       f"net_radius: {self.net_radius}")
             if -step_distance < net_to_target_projection < 0.1 and target_offset < self.net_radius:
                 terminated = True
                 reward = 30
