@@ -1,0 +1,7 @@
+{
+    "learning_rate": 0.0004082018554286413,
+    "exploration_initial_eps": 0.6144035478652088,
+    "exploration_final_eps": 0.09801835944511013,
+    "exploration_fraction": 0.4734248896693696,
+    "batch_size": 63
+}
