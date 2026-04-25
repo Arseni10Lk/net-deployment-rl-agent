@@ -6,7 +6,7 @@ import net_interception_env
 
 env = gym.make("DroneNet-3D")
 
-model = DQN("MultiInputPolicy", env, verbose=1, learning_rate=1e-3, exploration_initial_eps=0.05, exploration_final_eps=0.01, exploration_fraction=0.5)
+model = DQN("MultiInputPolicy", env, verbose=1, learning_rate=1e-3)
 model.learn(total_timesteps=100000, log_interval=100)
 model.save("dqn_drone3D")
 
@@ -15,6 +15,8 @@ env.close()
 # RESULT VERIFICATION
 test_env = gym.make("DroneNet-3D")
 success = 0
+timed_out = 0
+miss = 0
 num_episodes = 100
 
 for ep in range(num_episodes):
@@ -27,11 +29,16 @@ for ep in range(num_episodes):
             running = False
             if reward > 0:
                 success += 1
+            else:
+                miss += 1
         elif truncated:
             running = False
+            timed_out += 1
 
 accuracy = (success / num_episodes) * 100
-print(f"Evaluation finished! Accuracy: {accuracy:.2f}% ({success}/{num_episodes})")
+print(f"Evaluation finished! Accuracy: {accuracy:.2f}% ({success}/{num_episodes})\n"
+      f"Misses: {miss:.2f}% ({timed_out}/{num_episodes})\n"
+      f"Timed out: {timed_out}/{num_episodes}")
 
 # --- VISUAL WATCHING ---
 visual_env = gym.make("DroneNet-3D", render_mode="human")

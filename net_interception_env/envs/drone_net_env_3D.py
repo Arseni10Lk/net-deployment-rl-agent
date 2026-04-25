@@ -29,11 +29,31 @@ class DroneNetEnv(gym.Env):
                     shape=(1,),
                     dtype=np.float32
                 ),
-                "heading_diff": spaces.Box(
-                    0,
-                    360
-                    shape=(1,),
-                    dtype = np.float32
+                "UAV location": spaces.Box(
+                    np.zeros((3,), dtype=np.float32),
+                    np.array([self.size, self.size, self.size], dtype=np.float32),
+                    shape=(3,),
+                    dtype=np.float32
+                ),
+                "UAV velocity": spaces.Box(
+                    np.array([-Constraints.MAX_UAV_SPEED, -Constraints.MAX_UAV_SPEED, -Constraints.MAX_UAV_SPEED], dtype=np.float32),
+                    np.array([Constraints.MAX_UAV_SPEED, Constraints.MAX_UAV_SPEED, Constraints.MAX_UAV_SPEED], dtype=np.float32),
+                    shape=(3,),
+                    dtype=np.float32
+                ),
+                "Target location": spaces.Box(
+                    np.zeros((3,), dtype=np.float32),
+                    np.array([self.size, self.size, self.size], dtype=np.float32),
+                    shape=(3,),
+                    dtype=np.float32
+                ),
+                "Target velocity": spaces.Box(
+                    np.array([-Constraints.MAX_TARGET_SPEED, -Constraints.MAX_TARGET_SPEED, -Constraints.MAX_TARGET_SPEED],
+                             dtype=np.float32),
+                    np.array([Constraints.MAX_TARGET_SPEED, Constraints.MAX_TARGET_SPEED, Constraints.MAX_TARGET_SPEED],
+                             dtype=np.float32),
+                    shape=(3,),
+                    dtype=np.float32
                 )
             }
         )
@@ -59,7 +79,12 @@ class DroneNetEnv(gym.Env):
 
     def _get_obs(self):
         return {"distance": np.array([np.linalg.norm(self.target_location - self.pursuer_location)], dtype=np.float32),
-                "closing velocity": np.array([np.linalg.norm(self.target_velocity - self.pursuer_velocity)], dtype=np.float32)}
+                "closing velocity": np.array([np.linalg.norm(self.target_velocity - self.pursuer_velocity)], dtype=np.float32),
+                "UAV location": self.pursuer_location,
+                "UAV velocity": self.pursuer_velocity,
+                "Target location": self.target_location,
+                "Target velocity": self.target_velocity
+                }
 
     def _get_info(self):
         return {"pursuer location": self.pursuer_location,
@@ -144,6 +169,13 @@ class DroneNetEnv(gym.Env):
             self.separate_flight = True
             self.net_direction = self.pursuer_velocity / np.linalg.norm(self.pursuer_velocity)
             self.net_velocity = self.pursuer_velocity + self.net_direction*Constraints.EXTRA_VELOCITY
+            self.fire_distance = max(0.1, np.linalg.norm(self.target_location - self.pursuer_location))
+
+            # Normalize it to get a pure direction
+            dir_to_target = (self.target_location - self.pursuer_location) / self.fire_distance
+
+            # Calculate alignment (1.0 is perfect aim, 0.0 is sideways, -1.0 is completely backward)
+            self.shot_alignment = np.dot(self.net_direction, dir_to_target)
 
         if self.separate_flight:
             self.net_location, _, self.net_radius = Pro_Nav_logic.get_new_location(
@@ -154,12 +186,16 @@ class DroneNetEnv(gym.Env):
             target_offset = np.sqrt(max(0.0, np.linalg.norm(net_to_target)**2 - net_to_target_projection**2))
             if -0.1 < net_to_target_projection < 0.1 and target_offset < self.net_radius:
                 terminated = True
-                reward = 10
+                reward = 30
             elif net_to_target_projection < -0.1:
                 terminated = True
-                reward = -1
+                if self.shot_alignment < 0:
+                    reward = -30
+                else:
+                    miss_distance = target_offset - self.net_radius
+                    reward = -miss_distance/self.fire_distance
             elif truncated:
-                reward = -1
+                reward = -20
 
 
         observation = self._get_obs()
@@ -228,6 +264,49 @@ class DroneNetEnv(gym.Env):
                 (x_mapped, y_mapped),
                 self.marker_size * 3,
             )
+
+            # Now we draw the expanding net (if it has been fired)
+        if hasattr(self, 'separate_flight') and self.separate_flight:
+
+            # 1. Create a 3D coordinate system for the face of the net
+            normal = self.net_direction
+
+            # Find an arbitrary vector not parallel to the normal to compute a cross product
+            arbitrary = np.array([1.0, 0.0, 0.0])
+            if np.abs(np.dot(normal, arbitrary)) > 0.99:
+                arbitrary = np.array([0.0, 1.0, 0.0])
+
+            # U and V are orthogonal vectors that lie flat on the plane of the net
+            u = np.cross(normal, arbitrary)
+            u = u / np.linalg.norm(u)
+            v = np.cross(normal, u)
+
+            # 2. Generate 3D points around the net's circumference
+            num_points = 20  # Resolution of the drawn shape
+            angles = np.linspace(0, 2 * np.pi, num_points)
+
+            disk_points_3d = []
+            for angle in angles:
+                point = self.net_location + self.net_radius * np.cos(angle) * u + self.net_radius * np.sin(
+                    angle) * v
+                disk_points_3d.append(point)
+
+            # 3. Project and draw the shape on each of the 3 viewing planes
+            for i in range(3):
+                points_2d = []
+                for pt in disk_points_3d:
+                    x_mapped = self.window_size * i + float(pt[x_indices[i]])
+                    y_mapped = float(pt[y_indices[i]])
+                    points_2d.append((x_mapped, y_mapped))
+
+                # Draw the projected bounding polygon (which forms the correctly angled ellipse)
+                if len(points_2d) > 2:
+                    pygame.draw.polygon(canvas, (0, 255, 0), points_2d, 1)
+
+                # Draw the center point
+                center_x = self.window_size * i + float(self.net_location[x_indices[i]])
+                center_y = float(self.net_location[y_indices[i]])
+                pygame.draw.circle(canvas, (0, 255, 0), (center_x, center_y), 2)
 
         if self.render_mode == "human":
             # The following line copies our drawings from `canvas` to the visible window
