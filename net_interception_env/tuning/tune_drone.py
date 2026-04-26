@@ -57,13 +57,23 @@ def expected_improvement(x, gp, best_score, xi=0.01):
 
 # 3. Objective Function
 def evaluate_model(params):
-    env = gym.make("DroneNet-3D")
 
+    env = gym.make("DroneNet-3D")
     model = DQN("MultiInputPolicy", env, **params)
 
-    model.learn(total_timesteps=100000)
+    steps_total = 1000000
+    chunks = 5
+    steps_per_chunk = steps_total // chunks
 
-    accuracy, score = train_drone.verify("DroneNet-3D", model)
+    for chunk in range(chunks):
+
+        model.learn(total_timesteps=steps_per_chunk, reset_num_timesteps=False)
+
+        accuracy, score = train_drone.verify("DroneNet-3D", model)
+
+        if score < 13:
+            print(f"--> PRUNED! Trial killed at chunk {chunk + 1}/{chunks}. Score: {score}")
+            return accuracy, score, model
 
     return accuracy, score, model
 

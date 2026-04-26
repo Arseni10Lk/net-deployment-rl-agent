@@ -1,5 +1,5 @@
 import gymnasium as gym
-
+import json
 from stable_baselines3 import DQN
 from gymnasium.wrappers import RecordVideo
 import net_interception_env
@@ -9,7 +9,7 @@ def verify(env_name, model):
     success = 0
     timed_out = 0
     miss = 0
-    num_episodes = 100
+    num_episodes = 500
 
     for ep in range(num_episodes):
         obs, info = test_env.reset()
@@ -28,24 +28,38 @@ def verify(env_name, model):
                 timed_out += 1
 
     accuracy = (success / num_episodes) * 100
+    miss_percentage = (miss / num_episodes) * 100
     print(f"Evaluation finished! Accuracy: {accuracy:.2f}% ({success}/{num_episodes})\n"
-          f"Misses: {miss:.2f}% ({miss}/{num_episodes})\n"
+          f"Misses: {miss_percentage:.2f}% ({miss}/{num_episodes})\n"
           f"Timed out: {timed_out}/{num_episodes}")
-    accuracy_score = (success / num_episodes) * 100 + (miss / num_episodes) * 10 # encourage trying
+    accuracy_score = accuracy + miss_percentage / 10 # encourage trying
 
     return accuracy, accuracy_score
 
 if __name__ == "__main__":
     env = gym.make("DroneNet-3D")
 
-    model = DQN("MultiInputPolicy", env, verbose=1, learning_rate=1e-3)
-    model.learn(total_timesteps=100000, log_interval=100)
-    model.save("dqn_drone3D")
+    with open("net_interception_env/tuning/best_params.json", "r") as json_file:
+        params = json.load(json_file)
+
+    model = DQN("MultiInputPolicy", env, verbose=1, **params)
+
+    batches = 10
+    timesteps = 2000000
+    timesteps_per_batch = int(timesteps/batches)
+    for batch in range(batches):
+        print(f"Starting batch {batch + 1}/{batches}...")
+        model.learn(
+            total_timesteps=timesteps_per_batch,
+            log_interval=50,
+            reset_num_timesteps=False
+        )
+        model.save(f"dqn_drone3D_checkpoint_{batch + 1}")
+        verify("DroneNet-3D", model)
+
+    model.save("dqn_drone3D_final")
 
     env.close()
-
-    # RESULT VERIFICATION
-    verify("DroneNet-3D", model)
 
     # --- VISUAL WATCHING ---
     visual_env = gym.make("DroneNet-3D", render_mode="human")
