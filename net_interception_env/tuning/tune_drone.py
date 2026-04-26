@@ -61,14 +61,14 @@ def evaluate_model(params):
 
     model = DQN("MultiInputPolicy", env, **params)
 
-    model.learn(total_timesteps=50000)
+    model.learn(total_timesteps=100000)
 
-    accuracy = train_drone.verify("DroneNet-3D", model)
+    accuracy, score = train_drone.verify("DroneNet-3D", model)
 
-    return accuracy, model
+    return accuracy, score, model
 
 # 4. Main Tuner Loop
-num_trials = 10
+num_trials = 50
 best_score = -float("inf")
 best_params = {}
 
@@ -88,7 +88,7 @@ for trial in range(num_trials):
     }
 
     # Evaluate the chosen parameters
-    score, trained_model = evaluate_model(model_kwargs)
+    accuracy, score, trained_model = evaluate_model(model_kwargs)
 
     past_params_list.append(raw_params)
     past_scores_list.append(score)
@@ -97,7 +97,7 @@ for trial in range(num_trials):
         best_score = score
         best_params = model_kwargs
 
-        print(f"New high score! Saving model with score: {best_score}")
+        print(f"New high score! Saving model with score: {best_score}, accuracy: {accuracy}")
         trained_model.save("best_drone_model")
 
         with open("best_params.json", "w") as f:

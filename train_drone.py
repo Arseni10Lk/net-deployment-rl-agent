@@ -31,8 +31,9 @@ def verify(env_name, model):
     print(f"Evaluation finished! Accuracy: {accuracy:.2f}% ({success}/{num_episodes})\n"
           f"Misses: {miss:.2f}% ({miss}/{num_episodes})\n"
           f"Timed out: {timed_out}/{num_episodes}")
+    accuracy_score = (success / num_episodes) * 100 + (miss / num_episodes) * 10 # encourage trying
 
-    return accuracy
+    return accuracy, accuracy_score
 
 if __name__ == "__main__":
     env = gym.make("DroneNet-3D")
