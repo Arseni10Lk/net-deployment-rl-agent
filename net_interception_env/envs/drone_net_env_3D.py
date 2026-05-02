@@ -22,39 +22,16 @@ class DroneNetEnv(gym.Env):
 
         self.observation_space = spaces.Dict(
             {
-                "distance": spaces.Box(0, size * np.sqrt(3), shape=(1,), dtype=np.float32),
-                "closing velocity": spaces.Box(
-                    -(Constraints.MAX_UAV_SPEED+Constraints.MAX_TARGET_SPEED+1),
-                    Constraints.MAX_UAV_SPEED+Constraints.MAX_TARGET_SPEED+1,
-                    shape=(1,),
-                    dtype=np.float32
-                ),
-                "UAV location": spaces.Box(
-                    np.zeros((3,), dtype=np.float32),
-                    np.array([self.size, self.size, self.size], dtype=np.float32),
-                    shape=(3,),
-                    dtype=np.float32
-                ),
-                "UAV velocity": spaces.Box(
-                    np.array([-Constraints.MAX_UAV_SPEED, -Constraints.MAX_UAV_SPEED, -Constraints.MAX_UAV_SPEED], dtype=np.float32),
-                    np.array([Constraints.MAX_UAV_SPEED, Constraints.MAX_UAV_SPEED, Constraints.MAX_UAV_SPEED], dtype=np.float32),
-                    shape=(3,),
-                    dtype=np.float32
-                ),
-                "Target location": spaces.Box(
-                    np.zeros((3,), dtype=np.float32),
-                    np.array([self.size, self.size, self.size], dtype=np.float32),
-                    shape=(3,),
-                    dtype=np.float32
-                ),
-                "Target velocity": spaces.Box(
-                    np.array([-Constraints.MAX_TARGET_SPEED, -Constraints.MAX_TARGET_SPEED, -Constraints.MAX_TARGET_SPEED],
-                             dtype=np.float32),
-                    np.array([Constraints.MAX_TARGET_SPEED, Constraints.MAX_TARGET_SPEED, Constraints.MAX_TARGET_SPEED],
-                             dtype=np.float32),
-                    shape=(3,),
-                    dtype=np.float32
-                )
+                # Normalized between 0 and 1
+                "distance": spaces.Box(0, 1.0, shape=(1,), dtype=np.float32),
+                "closing velocity": spaces.Box(0, 1.0, shape=(1,), dtype=np.float32),
+
+                # Relative position normalized between -1 and 1
+                "Relative position": spaces.Box(-1.0, 1.0, shape=(3,), dtype=np.float32),
+
+                # Velocities normalized between -1 and 1
+                "UAV velocity": spaces.Box(-1.0, 1.0, shape=(3,), dtype=np.float32),
+                "Target velocity": spaces.Box(-1.0, 1.0, shape=(3,), dtype=np.float32)
             }
         )
 
@@ -76,15 +53,27 @@ class DroneNetEnv(gym.Env):
 
         self.max_steps = max_steps
 
-
     def _get_obs(self):
-        return {"distance": np.array([np.linalg.norm(self.target_location - self.pursuer_location)], dtype=np.float32),
-                "closing velocity": np.array([np.linalg.norm(self.target_velocity - self.pursuer_velocity)], dtype=np.float32),
-                "UAV location": self.pursuer_location,
-                "UAV velocity": self.pursuer_velocity,
-                "Target location": self.target_location,
-                "Target velocity": self.target_velocity
-                }
+        # Calculate maximums for normalization
+        max_dist = self.size * np.sqrt(3)
+        max_closing_vel = Constraints.MAX_UAV_SPEED + Constraints.MAX_TARGET_SPEED + 1
+
+        # Calculate raw values
+        distance = np.linalg.norm(self.target_location - self.pursuer_location)
+        closing_vel = np.linalg.norm(self.target_velocity - self.pursuer_velocity)
+        relative_pos = self.target_location - self.pursuer_location
+
+        return {
+            "distance": np.array([distance / max_dist], dtype=np.float32),
+            "closing velocity": np.array([closing_vel / max_closing_vel], dtype=np.float32),
+
+            # Divide by self.size to keep XYZ components between -1 and 1
+            "Relative position": (relative_pos / self.size).astype(np.float32),
+
+            # Divide velocities by their respective max constraints
+            "UAV velocity": (self.pursuer_velocity / Constraints.MAX_UAV_SPEED).astype(np.float32),
+            "Target velocity": (self.target_velocity / Constraints.MAX_TARGET_SPEED).astype(np.float32)
+        }
 
     def _get_info(self):
         return {"pursuer location": self.pursuer_location,
