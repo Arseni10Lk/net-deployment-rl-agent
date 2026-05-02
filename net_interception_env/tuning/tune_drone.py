@@ -56,7 +56,7 @@ def expected_improvement(x, gp, best_score, xi=0.01):
 
 
 # 3. Objective Function
-def evaluate_model(params):
+def evaluate_model(params, chunk_history, num_trials):
 
     env = gym.make("DroneNet-3D")
     model = DQN("MultiInputPolicy", env, **params)
@@ -64,51 +64,61 @@ def evaluate_model(params):
     steps_total = 1000000
     chunks = 5
     steps_per_chunk = steps_total // chunks
+    memory = num_trials // chunks
 
     for chunk in range(chunks):
 
         model.learn(total_timesteps=steps_per_chunk, reset_num_timesteps=False)
-
         accuracy, score = train_drone.verify("DroneNet-3D", model)
 
-        if score < 13:
-            print(f"--> PRUNED! Trial killed at chunk {chunk + 1}/{chunks}. Score: {score}")
-            return accuracy, score, model
+
+        if len(chunk_history[chunk]) >= memory:
+            if score < min(chunk_history[chunk]):
+                penalty_score = -10.0
+                print(f"--> PRUNED! Trial killed at chunk {chunk + 1}/{chunks}. Score: {score}")
+                return accuracy, penalty_score, model
+            else:
+                print(f"Trial is at {chunk + 1}/{chunks}. Score: {score}")
+
+        chunk_history[chunk].append(score)
+        chunk_history[chunk] = sorted(chunk_history[chunk], reverse=True)[:memory]
 
     return accuracy, score, model
 
-# 4. Main Tuner Loop
-num_trials = 50
-best_score = -float("inf")
-best_params = {}
+if __name__ == "__main__":
 
-past_params_list = []
-past_scores_list = []
+    num_trials = 100
+    best_score = -float("inf")
+    best_params = {}
 
-for trial in range(num_trials):
-    raw_params = bayesian_sample(bounds_list, np.array(past_params_list), past_scores_list, best_score)
+    past_params_list = []
+    past_scores_list = []
+    chunk_history = {i: [] for i in range(5)}
 
-    # Convert the array back to a usable dictionary
-    model_kwargs = {
-        "learning_rate": raw_params[0],
-        "exploration_initial_eps": raw_params[1],
-        "exploration_final_eps": raw_params[2],
-        "exploration_fraction": raw_params[3],
-        "batch_size": int(round(raw_params[4]))
-    }
+    for trial in range(num_trials):
+        raw_params = bayesian_sample(bounds_list, np.array(past_params_list), past_scores_list, best_score)
 
-    # Evaluate the chosen parameters
-    accuracy, score, trained_model = evaluate_model(model_kwargs)
+        # Convert the array back to a usable dictionary
+        model_kwargs = {
+            "learning_rate": raw_params[0],
+            "exploration_initial_eps": raw_params[1],
+            "exploration_final_eps": raw_params[2],
+            "exploration_fraction": raw_params[3],
+            "batch_size": int(round(raw_params[4]))
+        }
 
-    past_params_list.append(raw_params)
-    past_scores_list.append(score)
+        # Evaluate the chosen parameters
+        accuracy, score, trained_model = evaluate_model(model_kwargs, chunk_history, num_trials)
 
-    if score > best_score:
-        best_score = score
-        best_params = model_kwargs
+        past_params_list.append(raw_params)
+        past_scores_list.append(score)
 
-        print(f"New high score! Saving model with score: {best_score}, accuracy: {accuracy}")
-        trained_model.save("best_drone_model")
+        if score > best_score:
+            best_score = score
+            best_params = model_kwargs
 
-        with open("best_params.json", "w") as f:
-            json.dump(best_params, f, indent=4)
+            print(f"New high score! Saving model with score: {best_score}, accuracy: {accuracy}")
+            trained_model.save("best_drone_model")
+
+            with open("best_params.json", "w") as f:
+                json.dump(best_params, f, indent=4)
