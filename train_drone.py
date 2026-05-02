@@ -4,12 +4,11 @@ from stable_baselines3 import DQN
 from gymnasium.wrappers import RecordVideo
 import net_interception_env
 
-def verify(env_name, model):
+def verify(env_name, model, num_episodes=500):
     test_env = gym.make(env_name)
     success = 0
     timed_out = 0
     miss = 0
-    num_episodes = 500
 
     for ep in range(num_episodes):
         obs, info = test_env.reset()
@@ -33,6 +32,8 @@ def verify(env_name, model):
           f"Misses: {miss_percentage:.2f}% ({miss}/{num_episodes})\n"
           f"Timed out: {timed_out}/{num_episodes}")
     accuracy_score = accuracy + miss_percentage / 10 # encourage trying
+
+    test_env.close()
 
     return accuracy, accuracy_score
 

@@ -191,9 +191,9 @@ class DroneNetEnv(gym.Env):
                 else:
                     miss_distance = target_offset - self.net_radius
                     reward = -miss_distance/self.fire_distance*5
-            elif truncated:
-                reward = -20
 
+        if truncated:
+            reward = -20
 
         observation = self._get_obs()
         info = self._get_info()
