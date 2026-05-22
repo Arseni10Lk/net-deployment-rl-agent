@@ -167,7 +167,13 @@ class DroneNetEnv(gym.Env):
             self.net_location = self.pursuer_location.copy()
             self.net_radius = 0.1  # m
             self.separate_flight = True
-            self.net_direction = self.pursuer_velocity / np.linalg.norm(self.pursuer_velocity)
+
+            p_speed = np.linalg.norm(self.pursuer_velocity)
+            if p_speed > 1e-6:
+                self.net_direction = self.pursuer_velocity / p_speed
+            else:
+                self.net_direction = np.array([1.0, 0.0, 0.0])
+
             self.net_velocity = self.pursuer_velocity + self.net_direction*Constraints.EXTRA_VELOCITY
             self.fire_distance = max(0.1, np.linalg.norm(self.target_location - self.pursuer_location))
 
@@ -194,14 +200,15 @@ class DroneNetEnv(gym.Env):
             #       f"net_radius: {self.net_radius}")
             if -step_distance < net_to_target_projection < 0.1 and target_offset < self.net_radius:
                 terminated = True
-                reward = 30
+                reward = 30 + 10 * (1 - target_offset/self.net_radius)
             elif net_to_target_projection < -step_distance:
                 terminated = True
                 if self.shot_alignment < 0:
                     reward = -30
                 else:
                     miss_distance = target_offset - self.net_radius
-                    miss_angle = np.rad2deg(np.asin(miss_distance/self.fire_distance))
+                    safe_ratio = np.clip(miss_distance/self.fire_distance, -1.0, 1.0)
+                    miss_angle = np.rad2deg(np.asin(safe_ratio))
                     reward = -miss_angle / 3
 
         if truncated:
