@@ -22,7 +22,7 @@ class DroneNetEnv(gym.Env):
             {
                 # Normalized between 0 and 1
                 "distance": spaces.Box(0, 1.0, shape=(1,), dtype=np.float32),
-                "closing velocity": spaces.Box(0, 1.0, shape=(1,), dtype=np.float32),
+                "closing velocity": spaces.Box(-1.0, 1.0, shape=(1,), dtype=np.float32),
 
                 # Relative position normalized between -1 and 1
                 "Relative position": spaces.Box(-1.0, 1.0, shape=(3,), dtype=np.float32),
@@ -58,8 +58,13 @@ class DroneNetEnv(gym.Env):
 
         # Calculate raw values
         distance = np.linalg.norm(self.target_location - self.pursuer_location)
-        closing_vel = np.linalg.norm(self.target_velocity - self.pursuer_velocity)
+        rel_vel = self.target_velocity - self.pursuer_velocity
         relative_pos = self.target_location - self.pursuer_location
+
+        if distance > 1e-6:
+            closing_vel = -np.dot(relative_pos, rel_vel) / distance
+        else:
+            closing_vel = 0.0
 
         return {
             "distance": np.array([distance / max_dist], dtype=np.float32),
@@ -111,8 +116,10 @@ class DroneNetEnv(gym.Env):
             self.target_acceleration = self.target_acceleration / np.linalg.norm(
                 self.target_acceleration) * Constraints.MAX_TARGET_ACCELERATION
 
-        # The interceptor is carrying a net
-        self.separate_flight = False
+        if hasattr(self, 'net_location'):
+            del self.net_location
+            del self.net_direction
+            del self.net_radius
 
         observation = self._get_obs()
         info = self._get_info()
@@ -163,10 +170,9 @@ class DroneNetEnv(gym.Env):
         if self.timestep >= self.max_steps:
             truncated = True
 
-        if action == Actions.do_shoot.value and not self.separate_flight:
+        if action == Actions.do_shoot.value:
             self.net_location = self.pursuer_location.copy()
             self.net_radius = 0.1  # m
-            self.separate_flight = True
 
             p_speed = np.linalg.norm(self.pursuer_velocity)
             if p_speed > 1e-6:
@@ -183,33 +189,49 @@ class DroneNetEnv(gym.Env):
             # Calculate alignment (1.0 is perfect aim, 0.0 is sideways, -1.0 is completely backward)
             self.shot_alignment = np.dot(self.net_direction, dir_to_target)
 
-        if self.separate_flight:
-            self.net_location, _, self.net_radius = Pro_Nav_logic.get_new_location(
-                0, self.net_velocity, self.net_location, old_radius=self.net_radius
-            )
-            net_to_target = self.target_location - self.net_location
-            net_to_target_projection = np.dot(self.net_direction, net_to_target)
-            target_offset = np.sqrt(max(0.0, np.linalg.norm(net_to_target)**2 - net_to_target_projection**2))
+            for _ in range(Constraints.MAX_NET_FLIGHT_STEPS):
+                # 1. Net move
+                self.net_location, _, self.net_radius = Pro_Nav_logic.get_new_location(
+                    0, self.net_velocity, self.net_location, old_radius=self.net_radius
+                )
 
-            net_speed = np.linalg.norm(self.net_velocity)
-            step_distance = net_speed * Constraints.dt
-            # print(f"Step distance: {step_distance}\n"
-            #       f"target_offset: {target_offset}\n"
-            #       f"net_speed: {net_speed}\n"
-            #       f"net_to_target: {net_to_target_projection}\n"
-            #       f"net_radius: {self.net_radius}")
-            if -step_distance < net_to_target_projection < 0.1 and target_offset < self.net_radius:
-                terminated = True
-                reward = 30 + 10 * (1 - target_offset/self.net_radius)
-            elif net_to_target_projection < -step_distance:
-                terminated = True
-                if self.shot_alignment < 0:
-                    reward = -30
-                else:
-                    miss_distance = target_offset - self.net_radius
-                    safe_ratio = np.clip(miss_distance/self.fire_distance, -1.0, 1.0)
-                    miss_angle = np.rad2deg(np.asin(safe_ratio))
-                    reward = -miss_angle / 3
+                # 2. Target move
+                self.target_acceleration = tpn.target_accelaration(self.target_acceleration)
+                self.target_location, self.target_velocity, _ = tpn.get_new_location(
+                    self.target_acceleration, self.target_velocity, self.target_location, Constraints.MAX_TARGET_SPEED
+                )
+
+                #  3. Collision check
+                net_to_target = self.target_location - self.net_location
+                net_to_target_projection = np.dot(self.net_direction, net_to_target)
+                target_offset = np.sqrt(max(0.0, np.linalg.norm(net_to_target)**2 - net_to_target_projection**2))
+
+                net_speed = np.linalg.norm(self.net_velocity)
+                step_distance = net_speed * Constraints.dt
+                # print(f"Step distance: {step_distance}\n"
+                #       f"target_offset: {target_offset}\n"
+                #       f"net_speed: {net_speed}\n"
+                #       f"net_to_target: {net_to_target_projection}\n"
+                #       f"net_radius: {self.net_radius}")
+                if -step_distance < net_to_target_projection < 0.1 and target_offset < self.net_radius:
+                    reward = 30 + 10 * (1 - target_offset/self.net_radius)
+                    break
+                elif net_to_target_projection < -step_distance:
+                    if self.shot_alignment < 0:
+                        reward = -30
+                        break
+                    else:
+                        miss_distance = target_offset - self.net_radius
+                        safe_ratio = np.clip(miss_distance/self.fire_distance, -1.0, 1.0)
+                        miss_angle = np.rad2deg(np.asin(safe_ratio))
+                        reward = -miss_angle / 3
+                        break
+                if self.render_mode == "human":
+                    self._render_frame()
+            else:
+                reward = -20
+
+            terminated = True
 
         if truncated:
             reward = -20
@@ -282,7 +304,7 @@ class DroneNetEnv(gym.Env):
             )
 
             # Now we draw the expanding net (if it has been fired)
-        if hasattr(self, 'separate_flight') and self.separate_flight:
+        if hasattr(self, 'net_location'):
 
             # 1. Create a 3D coordinate system for the face of the net
             normal = self.net_direction
