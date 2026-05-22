@@ -18,6 +18,9 @@ import csv
 kernel = Matern(nu=2.5)
 gp = GaussianProcessRegressor(kernel=kernel)
 
+chunks = 5
+steps_total = 1e6
+
 # 1. Define bounds
 bounds_list = [
     (3.0, 5.0),         # 0: the negative power of 10 for learning_rate
@@ -26,10 +29,8 @@ bounds_list = [
     (0.1, 0.5),         # 3: exploration_fraction
     (5.0, 8.0),         # 4: the power of 2 for batch_size
     (2, 4),             # 5: negative power of 10 for 1-gamma
-    (0.1, 1.5)   # 6: target_update_interval
+    (0.1, 1.5)          # 6: target_update_interval / 1e4
 ]
-
-chunks = 10
 
 # 2. Sampler
 def bayesian_sample(bounds, past_params, past_scores, best_score):
@@ -82,33 +83,36 @@ def evaluate_model(params, chunk_history, num_trials):
 
     env = gym.make("DroneNet-3D")
     model = DQN("MultiInputPolicy", env, **params)
-    max_num_eval_episodes = 500
-    num_eval_episodes = [250, 200, 150, 200, 200, 300, 300, 400, 400, 500]
-    steps_total = 1e6
+    num_eval_episodes = 500
     steps_per_chunk = int(steps_total // chunks)
     pruned = False
 
+    scores = []
+
     for chunk in range(chunks):
-        memory = num_trials // (chunk + 1)
+        memory = num_trials // (chunk + 2)
 
         model.learn(total_timesteps=steps_per_chunk, reset_num_timesteps=False)
-        accuracy, score = train_drone.verify("DroneNet-3D", model, num_eval_episodes[chunk])
+        accuracy, score = train_drone.verify("DroneNet-3D", model, num_eval_episodes)
 
         if len(chunk_history[chunk]) >= memory:
-            if score < min(chunk_history[chunk]):
+            threshold = min(chunk_history[chunk])  * 0.9
+
+            if score < threshold:
                 print(f"--> PRUNED! Trial killed at chunk {chunk + 1}/{chunks}. Score: {score}")
                 pruned = True
                 env.close()
-                return accuracy, score, model, pruned
-            else:
-                print(f"Trial is at {chunk + 1}/{chunks}. Score: {score}")
+                scores.append(score)
+                return accuracy, scores, model, pruned
 
+        print(f"Trial is at {chunk + 1}/{chunks}. Score: {score}")
         chunk_history[chunk].append(score)
         chunk_history[chunk] = sorted(chunk_history[chunk], reverse=True)[:memory]
+        scores.append(score)
+
 
     env.close()
-
-    return accuracy, score, model, pruned
+    return accuracy, scores, model, pruned
 
 def load_params_from_the_last_run(filename, number=5):
     with open(filename, mode='r', newline='') as tuning_log:
@@ -154,7 +158,8 @@ def pre_trials(log_file_old, log_file_new, number=5):
             "target_update_interval": int(last_run_params[pre_trial][6]),
         }
 
-        accuracy, score, trained_model, pruned = evaluate_model(model_kwargs, chunk_history, num_trials)
+        accuracy, scores, trained_model, pruned = evaluate_model(model_kwargs, chunk_history, num_trials)
+        final_score = scores[-1]
 
         raw_params = [
             - np.log10(last_run_params[pre_trial][0]),
@@ -166,25 +171,28 @@ def pre_trials(log_file_old, log_file_new, number=5):
             last_run_params[pre_trial][6] / 10000
             ]
         past_params_list.append(raw_params)
-        past_scores_list.append(score)
+        past_scores_list.append(final_score)
 
         status = "Pruned" if pruned else "Completed"
 
         with open(log_file_new, mode='a', newline='') as file:
+            all_col_scores = scores + [""] * (chunks - len(scores))
+
             writer = csv.writer(file)
             writer.writerow([
-                pre_trial + 1, status, score, accuracy,
+                pre_trial + 1, status, final_score, accuracy,
                 model_kwargs["learning_rate"],
                 model_kwargs["exploration_initial_eps"],
                 model_kwargs["exploration_final_eps"],
                 model_kwargs["exploration_fraction"],
                 model_kwargs["batch_size"],
                 model_kwargs["gamma"],
-                model_kwargs["target_update_interval"]
-            ])
+                model_kwargs["target_update_interval"]]
+                + all_col_scores
+            )
 
-        if score > best_score:
-            best_score = score
+        if final_score > best_score:
+            best_score = final_score
             best_params = model_kwargs
 
             print(f"New high score! Saving model with score: {best_score}, accuracy: {accuracy}")
@@ -211,11 +219,16 @@ if __name__ == "__main__":
     if not os.path.exists(log_file):
         with open(log_file, mode='w', newline='') as file:
             writer = csv.writer(file)
+
+            chunks_header = []
+            for chunk in range(chunks):
+                chunks_header.append(f"After {int(steps_total // chunks * chunk)}")
+
             writer.writerow([
-                "Trial", "Status", "Score", "Accuracy", "Learning_Rate",
+                "Trial", "Status", "Final Score", "Accuracy", "Learning_Rate",
                 "Init_Eps", "Final_Eps", "Eps_Fraction", "Batch_Size",
-                "gamma", "target_update_interval"
-            ])
+                "gamma", "target_update_interval"] + chunks_header
+                )
 
     num_pre_trials = 5
     past_params_list, past_scores_list, best_score = pre_trials('tuning_log.csv', log_file, num_pre_trials)
@@ -235,32 +248,35 @@ if __name__ == "__main__":
         }
 
         # Evaluate the chosen parameters
-        accuracy, score, trained_model, pruned = evaluate_model(model_kwargs, chunk_history, num_trials)
+        accuracy, scores, trained_model, pruned = evaluate_model(model_kwargs, chunk_history, num_trials)
+        final_score = scores[-1]
+
+        trained_model.save(f'models/model_{trial}')
 
         past_params_list.append(raw_params)
-        past_scores_list.append(score)
+        past_scores_list.append(final_score)
 
         status = "Pruned" if pruned else "Completed"
 
         with open(log_file, mode='a', newline='') as file:
+            all_col_scores = scores + [""] * (chunks - len(scores))
             writer = csv.writer(file)
             writer.writerow([
-                trial + 1 + num_pre_trials, status, score, accuracy,
+                trial + 1 + num_pre_trials, status, final_score, accuracy,
                 model_kwargs["learning_rate"],
                 model_kwargs["exploration_initial_eps"],
                 model_kwargs["exploration_final_eps"],
                 model_kwargs["exploration_fraction"],
                 model_kwargs["batch_size"],
                 model_kwargs["gamma"],
-                model_kwargs["target_update_interval"]
-            ])
+                model_kwargs["target_update_interval"]] +
+                all_col_scores)
 
-        if score > best_score:
-            best_score = score
+        if final_score > best_score:
+            best_score = final_score
             best_params = model_kwargs
 
-            print(f"New high score! Saving model with score: {best_score}, accuracy: {accuracy}")
-            trained_model.save("best_drone_model")
+            print(f"New high score! Score: {best_score}, accuracy: {accuracy}")
 
             with open("best_params.json", "w") as f:
                 json.dump(best_params, f, indent=4)
