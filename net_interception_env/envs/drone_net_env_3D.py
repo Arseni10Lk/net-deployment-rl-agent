@@ -4,9 +4,7 @@ from gymnasium import spaces
 import pygame
 import numpy as np
 from torch._C import dtype
-
 from net_interception_env.mechanics import Pro_Nav_logic as tpn, Constraints, Pro_Nav_logic
-
 
 class Actions(Enum):
     dont_shoot = 0
@@ -100,6 +98,19 @@ class DroneNetEnv(gym.Env):
             -Constraints.MAX_TARGET_ACCELERATION, Constraints.MAX_TARGET_ACCELERATION, size=3
         ).astype(np.float32)
 
+        # So that the generated velocities and accelarations are within physical boundaries
+        if np.linalg.norm(self.pursuer_velocity) > Constraints.MAX_UAV_SPEED:
+            self.pursuer_velocity = self.pursuer_velocity / np.linalg.norm(
+                self.pursuer_velocity) * Constraints.MAX_UAV_SPEED
+
+        if np.linalg.norm(self.target_velocity) > Constraints.MAX_TARGET_SPEED:
+            self.target_velocity = self.target_velocity / np.linalg.norm(
+                self.target_velocity) * Constraints.MAX_TARGET_SPEED
+
+        if np.linalg.norm(self.target_acceleration) > Constraints.MAX_TARGET_ACCELERATION:
+            self.target_acceleration = self.target_acceleration / np.linalg.norm(
+                self.target_acceleration) * Constraints.MAX_TARGET_ACCELERATION
+
         # The interceptor is carrying a net
         self.separate_flight = False
 
@@ -190,7 +201,8 @@ class DroneNetEnv(gym.Env):
                     reward = -30
                 else:
                     miss_distance = target_offset - self.net_radius
-                    reward = -miss_distance/self.fire_distance*5
+                    miss_angle = np.rad2deg(np.asin(miss_distance/self.fire_distance))
+                    reward = -miss_angle / 3
 
         if truncated:
             reward = -20

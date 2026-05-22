@@ -4,6 +4,8 @@ from sklearn.gaussian_process.kernels import Matern
 from sklearn.preprocessing import StandardScaler
 from scipy.stats import norm
 from scipy.optimize import minimize
+from torch.jit import last_executed_optimized_graph
+
 import net_interception_env
 import gymnasium as gym
 from stable_baselines3 import DQN
@@ -19,12 +21,12 @@ gp = GaussianProcessRegressor(kernel=kernel)
 # 1. Define bounds
 bounds_list = [
     (3.0, 5.0),         # 0: the negative power of 10 for learning_rate
-    (0.01, 0.1),        # 1: exploration_initial_eps
-    (0.001, 0.01),      # 2: exploration_final_eps
+    (1, 2),             # 1: negative power of 10 for exploration_initial_eps
+    (3, 2),             # 2: negative power of 10 for exploration_final_eps
     (0.1, 0.5),         # 3: exploration_fraction
     (5.0, 8.0),         # 4: the power of 2 for batch_size
-    (0.99, 0.9999),     # 5: gamma
-    (1000.0, 15000.0)   # 6: target_update_interval
+    (2, 4),             # 5: negative power of 10 for 1-gamma
+    (0.1, 1.5)   # 6: target_update_interval
 ]
 
 chunks = 10
@@ -75,8 +77,6 @@ def bayesian_sample(bounds, past_params, past_scores, best_score):
 
     return best_x
 
-    return result.x
-
 # 3. Objective Function
 def evaluate_model(params, chunk_history, num_trials):
 
@@ -110,9 +110,95 @@ def evaluate_model(params, chunk_history, num_trials):
 
     return accuracy, score, model, pruned
 
+def load_params_from_the_last_run(filename, number=5):
+    with open(filename, mode='r', newline='') as tuning_log:
+        csvreader = csv.reader(tuning_log)
+        next(csvreader)
+
+        # check scores
+        scores = []
+
+        for row in csvreader:
+            scores.append(float(row[2]))
+
+        scores = sorted(scores, reverse=True)
+
+        # extract hyperparameters
+
+        tuning_log.seek(0)
+        next(csvreader)
+        hyperparameters = []
+
+        for row in csvreader:
+            if scores[number] < float(row[2]):
+                hyperparameters.append(row[4:11])
+
+    return [[float(val) for val in row] for row in hyperparameters]
+
+def pre_trials(log_file_old, log_file_new, number=5):
+    last_run_params = load_params_from_the_last_run(log_file_old, number)
+    past_params_list = []
+    past_scores_list = []
+
+    best_score = -float("inf")
+
+    for pre_trial in range(number):
+
+        model_kwargs = {
+            "learning_rate": last_run_params[pre_trial][0],
+            "exploration_initial_eps": last_run_params[pre_trial][1],
+            "exploration_final_eps": last_run_params[pre_trial][2],
+            "exploration_fraction": last_run_params[pre_trial][3],
+            "batch_size": int(last_run_params[pre_trial][4]),
+            "gamma": last_run_params[pre_trial][5],
+            "target_update_interval": int(last_run_params[pre_trial][6]),
+        }
+
+        accuracy, score, trained_model, pruned = evaluate_model(model_kwargs, chunk_history, num_trials)
+
+        raw_params = [
+            - np.log10(last_run_params[pre_trial][0]),
+            - np.log10(last_run_params[pre_trial][1]),
+            - np.log10(last_run_params[pre_trial][2]),
+            last_run_params[pre_trial][3],
+            np.log2(last_run_params[pre_trial][4]),
+            - np.log10(1 - last_run_params[pre_trial][5]),
+            last_run_params[pre_trial][6] / 10000
+            ]
+        past_params_list.append(raw_params)
+        past_scores_list.append(score)
+
+        status = "Pruned" if pruned else "Completed"
+
+        with open(log_file_new, mode='a', newline='') as file:
+            writer = csv.writer(file)
+            writer.writerow([
+                pre_trial + 1, status, score, accuracy,
+                model_kwargs["learning_rate"],
+                model_kwargs["exploration_initial_eps"],
+                model_kwargs["exploration_final_eps"],
+                model_kwargs["exploration_fraction"],
+                model_kwargs["batch_size"],
+                model_kwargs["gamma"],
+                model_kwargs["target_update_interval"]
+            ])
+
+        if score > best_score:
+            best_score = score
+            best_params = model_kwargs
+
+            print(f"New high score! Saving model with score: {best_score}, accuracy: {accuracy}")
+            trained_model.save("best_drone_model")
+
+            with open("best_params.json", "w") as f:
+                json.dump(best_params, f, indent=4)
+
+    return past_params_list, past_scores_list, best_score
+
 if __name__ == "__main__":
 
     num_trials = 40
+
     best_score = -float("inf")
     best_params = {}
 
@@ -120,7 +206,7 @@ if __name__ == "__main__":
     past_scores_list = []
     chunk_history = {i: [] for i in range(chunks)}
 
-    log_file = "tuning_log.csv"
+    log_file = "tuning_log_v1.csv"
     # Create the file and write the header if it doesn't exist
     if not os.path.exists(log_file):
         with open(log_file, mode='w', newline='') as file:
@@ -131,18 +217,21 @@ if __name__ == "__main__":
                 "gamma", "target_update_interval"
             ])
 
+    num_pre_trials = 5
+    past_params_list, past_scores_list, best_score = pre_trials('tuning_log.csv', log_file, num_pre_trials)
+
     for trial in range(num_trials):
         raw_params = bayesian_sample(bounds_list, np.array(past_params_list), past_scores_list, best_score)
 
         # Convert the array back to a usable dictionary
         model_kwargs = {
-            "learning_rate": 10**-raw_params[0],
-            "exploration_initial_eps": raw_params[1],
-            "exploration_final_eps": raw_params[2],
-            "exploration_fraction": raw_params[3],
-            "batch_size": int(2 ** round(raw_params[4])),
-            "gamma": raw_params[5],
-            "target_update_interval": int(round(raw_params[6])),
+            "learning_rate":            10**-raw_params[0],
+            "exploration_initial_eps":  10**-raw_params[1],
+            "exploration_final_eps":    10**-raw_params[2],
+            "exploration_fraction":     raw_params[3],
+            "batch_size":               int(2 ** round(raw_params[4])),
+            "gamma":                    1 - 10**-raw_params[5],
+            "target_update_interval":   int(round(10000 * raw_params[6])),
         }
 
         # Evaluate the chosen parameters
@@ -156,7 +245,7 @@ if __name__ == "__main__":
         with open(log_file, mode='a', newline='') as file:
             writer = csv.writer(file)
             writer.writerow([
-                trial + 1, status, score, accuracy,
+                trial + 1 + num_pre_trials, status, score, accuracy,
                 model_kwargs["learning_rate"],
                 model_kwargs["exploration_initial_eps"],
                 model_kwargs["exploration_final_eps"],
