@@ -14,4 +14,4 @@ TARGET_DELTA_ACCELERATION = 1
 # Net
 EXPANSION_RATE = 0.2 # m / m_of_flight
 EXTRA_VELOCITY = 10
-MAX_NET_FLIGHT_STEPS = 500 # temporary constraint
+MAX_NET_FLIGHT_STEPS = 1000 # temporary constraint

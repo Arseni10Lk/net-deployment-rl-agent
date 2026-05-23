@@ -24,12 +24,12 @@ steps_total = 1e6
 # 1. Define bounds
 bounds_list = [
     (3.0, 5.0),         # 0: the negative power of 10 for learning_rate
-    (1, 2),             # 1: negative power of 10 for exploration_initial_eps
-    (3, 2),             # 2: negative power of 10 for exploration_final_eps
+    (1.0, 2.0),             # 1: negative power of 10 for exploration_initial_eps
+    (2.0, 3.0),             # 2: negative power of 10 for exploration_final_eps
     (0.1, 0.5),         # 3: exploration_fraction
     (5.0, 8.0),         # 4: the power of 2 for batch_size
-    (2, 4),             # 5: negative power of 10 for 1-gamma
-    (0.1, 1.5)          # 6: target_update_interval / 1e4
+    (2.0, 4.0),             # 5: negative power of 10 for 1-gamma
+    (0.1, 1.5)          # 6: target_update_interval / 1e4 change to 1 to 5
 ]
 
 # 2. Sampler
@@ -110,7 +110,6 @@ def evaluate_model(params, chunk_history, num_trials):
         chunk_history[chunk] = sorted(chunk_history[chunk], reverse=True)[:memory]
         scores.append(score)
 
-
     env.close()
     return accuracy, scores, model, pruned
 
@@ -161,15 +160,7 @@ def pre_trials(log_file_old, log_file_new, number=5):
         accuracy, scores, trained_model, pruned = evaluate_model(model_kwargs, chunk_history, num_trials)
         final_score = scores[-1]
 
-        raw_params = [
-            - np.log10(last_run_params[pre_trial][0]),
-            - np.log10(last_run_params[pre_trial][1]),
-            - np.log10(last_run_params[pre_trial][2]),
-            last_run_params[pre_trial][3],
-            np.log2(last_run_params[pre_trial][4]),
-            - np.log10(1 - last_run_params[pre_trial][5]),
-            last_run_params[pre_trial][6] / 10000
-            ]
+        raw_params = model_to_raw_params(last_run_params[pre_trial])
         past_params_list.append(raw_params)
         past_scores_list.append(final_score)
 
@@ -203,6 +194,40 @@ def pre_trials(log_file_old, log_file_new, number=5):
 
     return past_params_list, past_scores_list, best_score
 
+def load_past_trials(log_file):
+    past_params_list = []
+    past_scores_list = []
+    best_score = -float("inf")
+    chunk_history = {i: [] for i in range(chunks)}
+    with open(log_file, mode='r', newline='') as file:
+        reader = csv.reader(file)
+        next(reader)
+        for row in reader:
+            past_scores_list.append(float(row[2]))
+            best_score = max(best_score, float(row[2]))
+            model_params = row[4:11]
+            past_params_list.append(model_to_raw_params(model_params))
+
+            for i in range(chunks):
+                if row[11+i] != "":
+                    chunk_history[i].append(float(row[11+i]))
+
+    return past_params_list, past_scores_list, best_score, chunk_history
+
+def model_to_raw_params(model_params):
+    model_params = [float(p) for p in model_params]
+
+    raw_params = [
+        - np.log10(model_params[0]),
+        - np.log10(model_params[1]),
+        - np.log10(model_params[2]),
+        model_params[3],
+        np.log2(model_params[4]),
+        - np.log10(1 - model_params[5]),
+        model_params[6] / 1e4
+    ]
+    return raw_params
+
 if __name__ == "__main__":
 
     num_trials = 40
@@ -222,18 +247,20 @@ if __name__ == "__main__":
 
             chunks_header = []
             for chunk in range(chunks):
-                chunks_header.append(f"After {int(steps_total // chunks * chunk)}")
+                chunks_header.append(f"After {int(steps_total // chunks * (chunk+1))}")
 
             writer.writerow([
                 "Trial", "Status", "Final Score", "Accuracy", "Learning_Rate",
                 "Init_Eps", "Final_Eps", "Eps_Fraction", "Batch_Size",
                 "gamma", "target_update_interval"] + chunks_header
                 )
+    else:
+        past_params_list, past_scores_list, best_score, chunk_history = load_past_trials(log_file)
 
-    num_pre_trials = 5
-    past_params_list, past_scores_list, best_score = pre_trials('tuning_log.csv', log_file, num_pre_trials)
+    # num_pre_trials = 5
+    # past_params_list, past_scores_list, best_score = pre_trials('tuning_log.csv', log_file, num_pre_trials)
 
-    for trial in range(num_trials):
+    for trial in range(num_trials - len(past_params_list)):
         raw_params = bayesian_sample(bounds_list, np.array(past_params_list), past_scores_list, best_score)
 
         # Convert the array back to a usable dictionary
@@ -262,7 +289,7 @@ if __name__ == "__main__":
             all_col_scores = scores + [""] * (chunks - len(scores))
             writer = csv.writer(file)
             writer.writerow([
-                trial + 1 + num_pre_trials, status, final_score, accuracy,
+                trial + 1 + len(past_params_list), status, final_score, accuracy,
                 model_kwargs["learning_rate"],
                 model_kwargs["exploration_initial_eps"],
                 model_kwargs["exploration_final_eps"],
