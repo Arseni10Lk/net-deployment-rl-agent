@@ -18,19 +18,18 @@ import csv
 kernel = Matern(nu=2.5)
 gp = GaussianProcessRegressor(kernel=kernel)
 
-chunks = 5
+chunks = 4
 steps_total = 1e6
-num_trials = 60
+num_trials = 30
 
 # 1. Define bounds
 bounds_list = [
     (4.0, 5.0),             # 0: the negative power of 10 for learning_rate
-    (1.0, 2.0),             # 1: negative power of 10 for exploration_initial_eps
-    (2.0, 3.0),             # 2: negative power of 10 for exploration_final_eps
+    (0.5, 2.0),             # 1: negative power of 10 for exploration_initial_eps
+    (2.0, 4.0),             # 2: negative power of 10 for exploration_final_eps
     (0.7, 1.0),             # 3: exploration_fraction
-   #(7.0, 9.0),             # -: the power of 2 for batch_size
     (3.0, 4.0),             # 4: negative power of 10 for 1-gamma
-    (0.3, 0.45)             # 5: target_update_interval / 1e4
+    (3, 4.5)                # 5: target_update_interval / 1e3
 ]
 
 # 2. Sampler
@@ -135,7 +134,7 @@ def load_params_from_the_last_run(filename, number=5):
 
         for row in csvreader:
             if scores[number] < float(row[2]):
-                hyperparameters.append(row[4:11])
+                hyperparameters.append(row[4:8] + row[9:11])
 
     return [[float(val) for val in row] for row in hyperparameters]
 
@@ -154,8 +153,8 @@ def pre_trials(log_file_old, log_file_new, number=5):
             "exploration_final_eps": last_run_params[pre_trial][2],
             "exploration_fraction": last_run_params[pre_trial][3],
             "batch_size": 256,
-            "gamma": last_run_params[pre_trial][5],
-            "target_update_interval": int(last_run_params[pre_trial][6]),
+            "gamma": last_run_params[pre_trial][4],
+            "target_update_interval": int(last_run_params[pre_trial][5]),
         }
 
         accuracy, scores, trained_model, pruned = evaluate_model(model_kwargs, chunk_history)
@@ -177,7 +176,6 @@ def pre_trials(log_file_old, log_file_new, number=5):
                 model_kwargs["exploration_initial_eps"],
                 model_kwargs["exploration_final_eps"],
                 model_kwargs["exploration_fraction"],
-                model_kwargs["batch_size"],
                 model_kwargs["gamma"],
                 model_kwargs["target_update_interval"]]
                 + all_col_scores
@@ -206,12 +204,12 @@ def load_past_trials(log_file):
         for row in reader:
             past_scores_list.append(float(row[2]))
             best_score = max(best_score, float(row[2]))
-            model_params = row[4:11]
+            model_params = row[4:10]
             past_params_list.append(model_to_raw_params(model_params))
 
             for i in range(chunks):
-                if row[11+i] != "":
-                    chunk_history[i].append(float(row[11+i]))
+                if row[10+i] != "":
+                    chunk_history[i].append(float(row[10+i]))
 
     for chunk in range(chunks):
         memory = num_trials // (chunk + 2)
@@ -228,13 +226,11 @@ def model_to_raw_params(model_params):
         - np.log10(model_params[2]),
         model_params[3],
         - np.log10(1 - model_params[4]),
-        model_params[5] / 1e4
+        model_params[5] / 1e3
     ]
     return raw_params
 
 if __name__ == "__main__":
-
-
 
     best_score = -float("inf")
     best_params = {}
@@ -243,7 +239,7 @@ if __name__ == "__main__":
     past_scores_list = []
     chunk_history = {i: [] for i in range(chunks)}
 
-    log_file = "tuning_log_v1.csv"
+    log_file = "tuning_log_v2.csv"
     # Create the file and write the header if it doesn't exist
     if not os.path.exists(log_file):
         with open(log_file, mode='w', newline='') as file:
@@ -255,14 +251,15 @@ if __name__ == "__main__":
 
             writer.writerow([
                 "Trial", "Status", "Final Score", "Accuracy", "Learning_Rate",
-                "Init_Eps", "Final_Eps", "Eps_Fraction", "Batch_Size",
+                "Init_Eps", "Final_Eps", "Eps_Fraction",
                 "gamma", "target_update_interval"] + chunks_header
                 )
+
+        num_pre_trials = 4
+        past_params_list, past_scores_list, best_score = pre_trials('tuning_log_v1.csv', log_file, num_pre_trials)
+
     else:
         past_params_list, past_scores_list, best_score, chunk_history = load_past_trials(log_file)
-
-    # num_pre_trials = 5
-    # past_params_list, past_scores_list, best_score = pre_trials('tuning_log.csv', log_file, num_pre_trials)
 
     for trial in range(num_trials - len(past_params_list)):
         raw_params = bayesian_sample(bounds_list, np.array(past_params_list), past_scores_list, best_score)
@@ -275,7 +272,7 @@ if __name__ == "__main__":
             "exploration_fraction":     raw_params[3],
             "batch_size":               256,
             "gamma":                    1 - 10**-raw_params[4],
-            "target_update_interval":   int(round(10000 * raw_params[5])),
+            "target_update_interval":   int(round(1e3 * raw_params[5])),
         }
 
         # Evaluate the chosen parameters
@@ -299,7 +296,6 @@ if __name__ == "__main__":
                 model_kwargs["exploration_initial_eps"],
                 model_kwargs["exploration_final_eps"],
                 model_kwargs["exploration_fraction"],
-                model_kwargs["batch_size"],
                 model_kwargs["gamma"],
                 model_kwargs["target_update_interval"]] +
                 all_col_scores)
