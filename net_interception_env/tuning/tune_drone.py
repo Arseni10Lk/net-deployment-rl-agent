@@ -20,16 +20,17 @@ gp = GaussianProcessRegressor(kernel=kernel)
 
 chunks = 5
 steps_total = 1e6
+num_trials = 60
 
 # 1. Define bounds
 bounds_list = [
-    (3.0, 5.0),         # 0: the negative power of 10 for learning_rate
+    (4.0, 5.0),             # 0: the negative power of 10 for learning_rate
     (1.0, 2.0),             # 1: negative power of 10 for exploration_initial_eps
     (2.0, 3.0),             # 2: negative power of 10 for exploration_final_eps
-    (0.1, 0.5),         # 3: exploration_fraction
-    (5.0, 8.0),         # 4: the power of 2 for batch_size
-    (2.0, 4.0),             # 5: negative power of 10 for 1-gamma
-    (0.1, 1.5)          # 6: target_update_interval / 1e4 change to 1 to 5
+    (0.7, 1.0),             # 3: exploration_fraction
+   #(7.0, 9.0),             # -: the power of 2 for batch_size
+    (3.0, 4.0),             # 4: negative power of 10 for 1-gamma
+    (0.3, 0.45)             # 5: target_update_interval / 1e4
 ]
 
 # 2. Sampler
@@ -79,7 +80,7 @@ def bayesian_sample(bounds, past_params, past_scores, best_score):
     return best_x
 
 # 3. Objective Function
-def evaluate_model(params, chunk_history, num_trials):
+def evaluate_model(params, chunk_history):
 
     env = gym.make("DroneNet-3D")
     model = DQN("MultiInputPolicy", env, **params)
@@ -96,7 +97,7 @@ def evaluate_model(params, chunk_history, num_trials):
         accuracy, score = train_drone.verify("DroneNet-3D", model, num_eval_episodes)
 
         if len(chunk_history[chunk]) >= memory:
-            threshold = min(chunk_history[chunk])  * 0.9
+            threshold = min(chunk_history[chunk])  * 0.0
 
             if score < threshold:
                 print(f"--> PRUNED! Trial killed at chunk {chunk + 1}/{chunks}. Score: {score}")
@@ -152,12 +153,12 @@ def pre_trials(log_file_old, log_file_new, number=5):
             "exploration_initial_eps": last_run_params[pre_trial][1],
             "exploration_final_eps": last_run_params[pre_trial][2],
             "exploration_fraction": last_run_params[pre_trial][3],
-            "batch_size": int(last_run_params[pre_trial][4]),
+            "batch_size": 256,
             "gamma": last_run_params[pre_trial][5],
             "target_update_interval": int(last_run_params[pre_trial][6]),
         }
 
-        accuracy, scores, trained_model, pruned = evaluate_model(model_kwargs, chunk_history, num_trials)
+        accuracy, scores, trained_model, pruned = evaluate_model(model_kwargs, chunk_history)
         final_score = scores[-1]
 
         raw_params = model_to_raw_params(last_run_params[pre_trial])
@@ -212,6 +213,10 @@ def load_past_trials(log_file):
                 if row[11+i] != "":
                     chunk_history[i].append(float(row[11+i]))
 
+    for chunk in range(chunks):
+        memory = num_trials // (chunk + 2)
+        chunk_history[chunk] = sorted(chunk_history[chunk], reverse=True)[:memory]
+
     return past_params_list, past_scores_list, best_score, chunk_history
 
 def model_to_raw_params(model_params):
@@ -222,15 +227,14 @@ def model_to_raw_params(model_params):
         - np.log10(model_params[1]),
         - np.log10(model_params[2]),
         model_params[3],
-        np.log2(model_params[4]),
-        - np.log10(1 - model_params[5]),
-        model_params[6] / 1e4
+        - np.log10(1 - model_params[4]),
+        model_params[5] / 1e4
     ]
     return raw_params
 
 if __name__ == "__main__":
 
-    num_trials = 40
+
 
     best_score = -float("inf")
     best_params = {}
@@ -269,16 +273,17 @@ if __name__ == "__main__":
             "exploration_initial_eps":  10**-raw_params[1],
             "exploration_final_eps":    10**-raw_params[2],
             "exploration_fraction":     raw_params[3],
-            "batch_size":               int(2 ** round(raw_params[4])),
-            "gamma":                    1 - 10**-raw_params[5],
-            "target_update_interval":   int(round(10000 * raw_params[6])),
+            "batch_size":               256,
+            "gamma":                    1 - 10**-raw_params[4],
+            "target_update_interval":   int(round(10000 * raw_params[5])),
         }
 
         # Evaluate the chosen parameters
-        accuracy, scores, trained_model, pruned = evaluate_model(model_kwargs, chunk_history, num_trials)
+        accuracy, scores, trained_model, pruned = evaluate_model(model_kwargs, chunk_history)
         final_score = scores[-1]
 
-        trained_model.save(f'models/model_{trial}')
+        current_trial_num = len(past_params_list) + 1
+        trained_model.save(f'models/model_{current_trial_num}')
 
         past_params_list.append(raw_params)
         past_scores_list.append(final_score)
@@ -289,7 +294,7 @@ if __name__ == "__main__":
             all_col_scores = scores + [""] * (chunks - len(scores))
             writer = csv.writer(file)
             writer.writerow([
-                trial + 1 + len(past_params_list), status, final_score, accuracy,
+                len(past_params_list), status, final_score, accuracy,
                 model_kwargs["learning_rate"],
                 model_kwargs["exploration_initial_eps"],
                 model_kwargs["exploration_final_eps"],
