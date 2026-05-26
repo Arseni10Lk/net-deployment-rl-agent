@@ -1,9 +1,9 @@
 {
-    "learning_rate": 0.0007180373085823897,
-    "exploration_initial_eps": 0.020376687832630747,
-    "exploration_final_eps": 0.006925367680587714,
-    "exploration_fraction": 0.30568450492820287,
-    "batch_size": 128,
-    "gamma": 0.9998513276031246,
-    "target_update_interval": 3867
+    "learning_rate": 8.028440150286555e-05,
+    "exploration_initial_eps": 0.09940846901494617,
+    "exploration_final_eps": 0.0041039196296623415,
+    "exploration_fraction": 0.873427500510033,
+    "batch_size": 256,
+    "gamma": 0.9996836696735428,
+    "target_update_interval": 4068
 }

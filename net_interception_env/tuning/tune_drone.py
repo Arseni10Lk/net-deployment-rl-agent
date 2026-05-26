@@ -18,7 +18,7 @@ import csv
 kernel = Matern(nu=2.5)
 gp = GaussianProcessRegressor(kernel=kernel)
 
-chunks = 4
+chunks = 5
 steps_total = 1e6
 num_trials = 30
 
@@ -122,7 +122,8 @@ def load_params_from_the_last_run(filename, number=5):
         scores = []
 
         for row in csvreader:
-            scores.append(float(row[2]))
+            if row[2].strip() != "":
+                scores.append(float(row[2]))
 
         scores = sorted(scores, reverse=True)
 
@@ -133,8 +134,9 @@ def load_params_from_the_last_run(filename, number=5):
         hyperparameters = []
 
         for row in csvreader:
-            if scores[number] < float(row[2]):
-                hyperparameters.append(row[4:8] + row[9:11])
+            if row[2].strip() != "":
+                if scores[number] < float(row[2]):
+                    hyperparameters.append(row[4:8] + row[9:11])
 
     return [[float(val) for val in row] for row in hyperparameters]
 
