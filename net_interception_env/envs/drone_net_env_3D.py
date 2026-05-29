@@ -223,7 +223,7 @@ class DroneNetEnv(gym.Env):
                     else:
                         miss_distance = target_offset - self.net_radius
                         safe_ratio = np.clip(miss_distance/self.fire_distance, -1.0, 1.0)
-                        miss_angle = np.rad2deg(np.asin(safe_ratio))
+                        miss_angle = np.rad2deg(np.arcsin(safe_ratio))
                         reward = -miss_angle / 3
                         break
                 if self.render_mode == "human":

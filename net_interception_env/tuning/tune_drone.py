@@ -4,7 +4,10 @@ from sklearn.gaussian_process.kernels import Matern
 from sklearn.preprocessing import StandardScaler
 from scipy.stats import norm
 from scipy.optimize import minimize
+from stable_baselines3.common.callbacks import BaseCallback
 from torch.jit import last_executed_optimized_graph
+from stable_baselines3.common.env_util import make_vec_env
+from stable_baselines3.common.vec_env import SubprocVecEnv
 
 import net_interception_env
 import gymnasium as gym
@@ -27,10 +30,63 @@ bounds_list = [
     (4.0, 5.0),             # 0: the negative power of 10 for learning_rate
     (0.5, 2.0),             # 1: negative power of 10 for exploration_initial_eps
     (2.0, 4.0),             # 2: negative power of 10 for exploration_final_eps
-    (0.7, 1.0),             # 3: exploration_fraction
+    (0.1, 1.0),             # 3: exploration_fraction
     (3.0, 4.0),             # 4: negative power of 10 for 1-gamma
-    (3, 4.5)                # 5: target_update_interval / 1e3
+    (0.3, 1.5)              # 5: target_update_interval / 1e4
 ]
+
+class PruningCallback(BaseCallback):
+    def __init__(self,
+                env_name: str,
+                verbose=0,
+                chunks=10,
+                num_eval_episodes=500,
+                chunk_history=None,
+                threshold_fraction=1):
+        super().__init__(verbose)
+        self.env = env_name
+        self.verbose = verbose
+        self.current_chunk = 0
+        self.timesteps_per_chunk = steps_total / chunks
+        self.num_eval_episodes = num_eval_episodes
+
+        if chunk_history is None:
+            self.chunk_history = {i: [] for i in range(chunks)}
+        else:
+            self.chunk_history = chunk_history
+
+        self.scores = []
+
+        self.pruned = False
+        self.threshold_fraction = threshold_fraction
+        self.accuracy = 0
+
+    def _on_step(self) -> bool:
+
+        if self.n_calls % self.timesteps_per_chunk == 0:
+
+            self.current_chunk += 1
+
+            memory = num_trials // (self.current_chunk + 1)
+
+            print(f"Verifying chunk {self.current_chunk}/{chunks}...")
+            self.model.save(f"training_model_checkpoints/dqn_drone3D_checkpoint_{self.current_chunk}")
+            self.accuracy, score = train_drone.verify("DroneNet-3D", self.model, self.num_eval_episodes)
+
+            if len(self.chunk_history[self.current_chunk - 1]) >= memory:
+                threshold = min(self.chunk_history[self.current_chunk - 1])  * 0.0
+
+                if score < threshold:
+                    print(f"--> PRUNED! Trial killed at chunk {self.current_chunk}/{chunks}. Score: {score}")
+                    self.pruned = True
+
+            self.scores.append(score)
+            self.chunk_history[self.current_chunk - 1].append(score)
+            self.chunk_history[self.current_chunk - 1] = sorted(self.chunk_history[self.current_chunk - 1], reverse=True)[:memory]
+
+            return False if self.pruned else True
+
+        return True
 
 # 2. Sampler
 def bayesian_sample(bounds, past_params, past_scores, best_score):
@@ -81,36 +137,23 @@ def bayesian_sample(bounds, past_params, past_scores, best_score):
 # 3. Objective Function
 def evaluate_model(params, chunk_history):
 
-    env = gym.make("DroneNet-3D")
-    model = DQN("MultiInputPolicy", env, **params)
+    env_name = "DroneNet-3D"
+    # env = make_vec_env(env_name, n_envs=8, vec_env_cls=SubprocVecEnv)
+    env = gym.make(env_name)
+    model = DQN("MultiInputPolicy", env, **params, device="cpu")
     num_eval_episodes = 500
-    steps_per_chunk = int(steps_total // chunks)
-    pruned = False
 
-    scores = []
+    my_pruning_callback = PruningCallback(
+        env_name, verbose=0, num_eval_episodes=num_eval_episodes, chunk_history=chunk_history, threshold_fraction=0
+    )
 
-    for chunk in range(chunks):
-        memory = num_trials // (chunk + 2)
-
-        model.learn(total_timesteps=steps_per_chunk, reset_num_timesteps=False)
-        accuracy, score = train_drone.verify("DroneNet-3D", model, num_eval_episodes)
-
-        if len(chunk_history[chunk]) >= memory:
-            threshold = min(chunk_history[chunk])  * 0.0
-
-            if score < threshold:
-                print(f"--> PRUNED! Trial killed at chunk {chunk + 1}/{chunks}. Score: {score}")
-                pruned = True
-                env.close()
-                scores.append(score)
-                return accuracy, scores, model, pruned
-
-        print(f"Trial is at {chunk + 1}/{chunks}. Score: {score}")
-        chunk_history[chunk].append(score)
-        chunk_history[chunk] = sorted(chunk_history[chunk], reverse=True)[:memory]
-        scores.append(score)
-
+    model.learn(total_timesteps=steps_total, callback=my_pruning_callback)
     env.close()
+
+    accuracy = my_pruning_callback.accuracy
+    pruned = my_pruning_callback.pruned
+    scores = my_pruning_callback.scores
+
     return accuracy, scores, model, pruned
 
 def load_params_from_the_last_run(filename, number=5):
@@ -228,7 +271,7 @@ def model_to_raw_params(model_params):
         - np.log10(model_params[2]),
         model_params[3],
         - np.log10(1 - model_params[4]),
-        model_params[5] / 1e3
+        model_params[5] / 1e4
     ]
     return raw_params
 
@@ -241,7 +284,7 @@ if __name__ == "__main__":
     past_scores_list = []
     chunk_history = {i: [] for i in range(chunks)}
 
-    log_file = "tuning_log_v2.csv"
+    log_file = "tuning_log_v3.csv"
     # Create the file and write the header if it doesn't exist
     if not os.path.exists(log_file):
         with open(log_file, mode='w', newline='') as file:
@@ -257,8 +300,8 @@ if __name__ == "__main__":
                 "gamma", "target_update_interval"] + chunks_header
                 )
 
-        num_pre_trials = 4
-        past_params_list, past_scores_list, best_score = pre_trials('tuning_log_v1.csv', log_file, num_pre_trials)
+        # num_pre_trials = 4
+        # past_params_list, past_scores_list, best_score = pre_trials('tuning_log_v1.csv', log_file, num_pre_trials)
 
     else:
         past_params_list, past_scores_list, best_score, chunk_history = load_past_trials(log_file)
@@ -274,12 +317,14 @@ if __name__ == "__main__":
             "exploration_fraction":     raw_params[3],
             "batch_size":               256,
             "gamma":                    1 - 10**-raw_params[4],
-            "target_update_interval":   int(round(1e3 * raw_params[5])),
+            "target_update_interval":   int(round(1e4 * raw_params[5])),
         }
 
         # Evaluate the chosen parameters
         accuracy, scores, trained_model, pruned = evaluate_model(model_kwargs, chunk_history)
         final_score = scores[-1]
+
+        status = "Pruned" if pruned else "Completed"
 
         current_trial_num = len(past_params_list) + 1
         trained_model.save(f'models/model_{current_trial_num}')
@@ -287,20 +332,17 @@ if __name__ == "__main__":
         past_params_list.append(raw_params)
         past_scores_list.append(final_score)
 
-        status = "Pruned" if pruned else "Completed"
-
         with open(log_file, mode='a', newline='') as file:
             all_col_scores = scores + [""] * (chunks - len(scores))
             writer = csv.writer(file)
-            writer.writerow([
-                len(past_params_list), status, final_score, accuracy,
-                model_kwargs["learning_rate"],
-                model_kwargs["exploration_initial_eps"],
-                model_kwargs["exploration_final_eps"],
-                model_kwargs["exploration_fraction"],
-                model_kwargs["gamma"],
-                model_kwargs["target_update_interval"]] +
-                all_col_scores)
+            writer.writerow([len(past_params_list), status, final_score, accuracy,
+                                model_kwargs["learning_rate"],
+                                model_kwargs["exploration_initial_eps"],
+                                model_kwargs["exploration_final_eps"],
+                                model_kwargs["exploration_fraction"],
+                                model_kwargs["gamma"],
+                                model_kwargs["target_update_interval"]] +
+                                all_col_scores)
 
         if final_score > best_score:
             best_score = final_score
