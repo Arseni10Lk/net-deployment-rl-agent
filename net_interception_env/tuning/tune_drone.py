@@ -23,11 +23,11 @@ gp = GaussianProcessRegressor(kernel=kernel)
 
 chunks = 5
 steps_total = 1e6
-num_trials = 30
+num_trials = 45
 
 # 1. Define bounds
 bounds_list = [
-    (4.0, 5.0),             # 0: the negative power of 10 for learning_rate
+    (3.0, 4.5),             # 0: the negative power of 10 for learning_rate
     (0.5, 2.0),             # 1: negative power of 10 for exploration_initial_eps
     (2.0, 4.0),             # 2: negative power of 10 for exploration_final_eps
     (0.1, 1.0),             # 3: exploration_fraction
@@ -39,7 +39,7 @@ class PruningCallback(BaseCallback):
     def __init__(self,
                 env_name: str,
                 verbose=0,
-                chunks=10,
+                chunks=chunks,
                 num_eval_episodes=500,
                 chunk_history=None,
                 threshold_fraction=1):
@@ -144,7 +144,7 @@ def evaluate_model(params, chunk_history):
     num_eval_episodes = 500
 
     my_pruning_callback = PruningCallback(
-        env_name, verbose=0, num_eval_episodes=num_eval_episodes, chunk_history=chunk_history, threshold_fraction=0
+        env_name, verbose=0, chunks=chunks, num_eval_episodes=num_eval_episodes, chunk_history=chunk_history, threshold_fraction=0
     )
 
     model.learn(total_timesteps=steps_total, callback=my_pruning_callback)
