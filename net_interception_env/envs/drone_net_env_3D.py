@@ -29,7 +29,9 @@ class DroneNetEnv(gym.Env):
 
                 # Velocities normalized between -1 and 1
                 "UAV velocity": spaces.Box(-1.0, 1.0, shape=(3,), dtype=np.float32),
-                "Target velocity": spaces.Box(-1.0, 1.0, shape=(3,), dtype=np.float32)
+                "Target velocity": spaces.Box(-1.0, 1.0, shape=(3,), dtype=np.float32),
+
+                "alignment": spaces.Box(-1.0, 1.0, shape=(1,), dtype=np.float32)
             }
         )
 
@@ -66,6 +68,16 @@ class DroneNetEnv(gym.Env):
         else:
             closing_vel = 0.0
 
+        if distance < 5.0 and distance > 1e-6:
+            current_heading = relative_pos / distance
+        elif np.linalg.norm(self.pursuer_velocity) > 1e-6:
+            current_heading = self.pursuer_velocity / np.linalg.norm(self.pursuer_velocity)
+        else:
+            current_heading = np.array([1.0, 0.0, 0.0])
+
+        los_vector = (relative_pos / distance) if distance > 1e-6 else np.array([1.0, 0.0, 0.0])
+        alignment = np.dot(current_heading, los_vector)
+
         return {
             "distance": np.array([distance / max_dist], dtype=np.float32),
             "closing velocity": np.array([closing_vel / max_closing_vel], dtype=np.float32),
@@ -75,7 +87,9 @@ class DroneNetEnv(gym.Env):
 
             # Divide velocities by their respective max constraints
             "UAV velocity": (self.pursuer_velocity / Constraints.MAX_UAV_SPEED).astype(np.float32),
-            "Target velocity": (self.target_velocity / Constraints.MAX_TARGET_SPEED).astype(np.float32)
+            "Target velocity": (self.target_velocity / Constraints.MAX_TARGET_SPEED).astype(np.float32),
+
+            "alignment": np.array([alignment], dtype=np.float32)
         }
 
     def _get_info(self):
@@ -174,9 +188,12 @@ class DroneNetEnv(gym.Env):
             self.net_location = self.pursuer_location.copy()
             self.net_radius = 0.1  # m
 
-            p_speed = np.linalg.norm(self.pursuer_velocity)
-            if p_speed > 1e-6:
-                self.net_direction = self.pursuer_velocity / p_speed
+            current_distance = np.linalg.norm(self.target_location - self.pursuer_location)
+
+            if 5.0 > current_distance > 1e-6:
+                self.net_direction = (self.target_location - self.pursuer_location) / current_distance
+            elif np.linalg.norm(self.pursuer_velocity) > 1e-6:
+                self.net_direction = self.pursuer_velocity / np.linalg.norm(self.pursuer_velocity)
             else:
                 self.net_direction = np.array([1.0, 0.0, 0.0])
 

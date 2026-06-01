@@ -75,15 +75,15 @@ def record_verification(batch, accuracy, accuracy_score):
 
 if __name__ == "__main__":
     env_name = "DroneNet-3D"
-    env = make_vec_env(env_name, n_envs=8, vec_env_cls=SubprocVecEnv)
+    env = gym.make(env_name)
 
     with open("net_interception_env/tuning/best_params.json", "r") as json_file:
         params = json.load(json_file)
 
-    model = DQN("MultiInputPolicy", env, device="cuda", verbose=1, **params)
+    model = DQN("MultiInputPolicy", env, device="cpu", verbose=1, **params)
 
-    batches = 25
-    timesteps = int(5e6)
+    batches = 10
+    timesteps = int(2e6)
 
     batch_callback = BatchContinuationCallback(
         env_name, verbose = 1, batches = batches, total_timesteps = timesteps

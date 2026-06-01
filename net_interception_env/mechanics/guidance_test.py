@@ -7,10 +7,10 @@ from net_interception_env.mechanics import Pro_Nav_logic as tpn
 
 def test_pro_nav():
     # Initial conditions
-    pursuer_pos = np.random.rand(3)*200
+    pursuer_pos = np.random.rand(3)*50
     pursuer_vel = np.random.rand(3)*Constraints.MAX_UAV_SPEED
 
-    target_pos = np.random.rand(3)*200
+    target_pos = np.random.rand(3)*50
     target_vel = np.random.rand(3)*Constraints.MAX_TARGET_SPEED
     target_acc = np.array([0.0, 0.0, 0.0])
 
@@ -38,11 +38,6 @@ def test_pro_nav():
         p_hist.append(pursuer_pos.copy())
         t_hist.append(target_pos.copy())
 
-        # 4. Check for intercept (e.g., within 0.5 meters)
-        if np.linalg.norm(target_pos - pursuer_pos) < 0.5:
-            print(f"Target intercepted at step {step}!")
-            break
-
     # Visualization
     p_hist = np.array(p_hist)
     t_hist = np.array(t_hist)
@@ -61,7 +56,6 @@ def test_pro_nav():
     ax.set_zlabel('Z')
     ax.legend()
     plt.show()
-
 
 if __name__ == "__main__":
     test_pro_nav()

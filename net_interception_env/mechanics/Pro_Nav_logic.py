@@ -4,23 +4,37 @@ from net_interception_env.mechanics import Constraints
 def get_tpn_acceleration(v_pursuer, v_target, r_pursuer, r_target):
     relative_velocity = v_target - v_pursuer
     r = r_target - r_pursuer
+    distance = np.linalg.norm(r)
 
-    if np.linalg.norm(r) > 1e-6:
-        closing_velocity = -np.dot(relative_velocity, r) / np.linalg.norm(r)
-        if np.linalg.norm(v_pursuer) > 1e-2:
-            heading = v_pursuer / np.linalg.norm(v_pursuer)
+    if distance > 1e-6:
+
+        if distance < 5.0:
+            heading = r / distance
+
+            distance_error = 5.0 - distance
+            radial_dir = r / distance
+
+            v_desired = v_target - (radial_dir * distance_error * 2.0)
+
+            acceleration = (v_desired - v_pursuer) * 5.0
+
         else:
-            heading = r / np.linalg.norm(r)
 
-        dist = np.linalg.norm(r)
-        los_rot_rate = np.cross(r, relative_velocity) / (dist ** 2)
-        acceleration = - Constraints.N * np.linalg.norm(v_pursuer) * np.cross(heading, los_rot_rate)
+            if np.linalg.norm(v_pursuer) > 1e-2:
+                heading = v_pursuer / np.linalg.norm(v_pursuer)
+            else:
+                heading = r / distance
+
+            los_rot_rate = np.cross(r, relative_velocity) / (distance ** 2)
+            acceleration = - Constraints.N * np.linalg.norm(v_pursuer) * np.cross(heading, los_rot_rate)
     else:
         acceleration = np.zeros(3)
 
-    if np.linalg.norm(acceleration) > Constraints.MAX_UAV_ACCELERATION:
-        acceleration = acceleration / closing_velocity * Constraints.MAX_UAV_ACCELERATION
+    accel_norm = np.linalg.norm(acceleration)
+    if accel_norm > Constraints.MAX_UAV_ACCELERATION:
+        acceleration = (acceleration / accel_norm) * Constraints.MAX_UAV_ACCELERATION
 
+    # Return ONLY acceleration (since you aren't using alignment in the reward)
     return acceleration
 
 def get_new_location(acceleration, old_v, old_r, max_speed=1000, old_radius=0):
