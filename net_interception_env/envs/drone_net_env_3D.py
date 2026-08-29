@@ -68,9 +68,7 @@ class DroneNetEnv(gym.Env):
         else:
             closing_vel = 0.0
 
-        if distance < 5.0 and distance > 1e-6:
-            current_heading = relative_pos / distance
-        elif np.linalg.norm(self.pursuer_velocity) > 1e-6:
+        if np.linalg.norm(self.pursuer_velocity) > 1e-6:
             current_heading = self.pursuer_velocity / np.linalg.norm(self.pursuer_velocity)
         else:
             current_heading = np.array([1.0, 0.0, 0.0])
@@ -103,13 +101,17 @@ class DroneNetEnv(gym.Env):
         super().reset(seed=seed)
 
         # Choose the agent's location and velocity uniformly at random
-        self.pursuer_location = self.np_random.uniform(0, self.size, size=3).astype(np.float32)
+        self.pursuer_location = self.np_random.uniform(150, self.size - 150, size=3).astype(np.float32)
         self.pursuer_velocity = self.np_random.uniform(
             -Constraints.MAX_UAV_SPEED, Constraints.MAX_UAV_SPEED, size=3
         ).astype(np.float32)
 
-        # The target's location and velocity are chosen the same way
-        self.target_location = self.np_random.uniform(0, self.size, size=3).astype(np.float32)
+        # The target is placed between 30 and 150 meters away
+        spawn_dist = self.np_random.uniform(30, 150)
+        spawn_dir = self.np_random.normal(0, 1, size=3)
+        spawn_dir /= np.linalg.norm(spawn_dir)
+        self.target_location = (self.pursuer_location + spawn_dir * spawn_dist).astype(np.float32)
+        
         self.target_velocity = self.np_random.uniform(
             -Constraints.MAX_TARGET_SPEED, Constraints.MAX_TARGET_SPEED, size=3
         ).astype(np.float32)
@@ -190,9 +192,7 @@ class DroneNetEnv(gym.Env):
 
             current_distance = np.linalg.norm(self.target_location - self.pursuer_location)
 
-            if 5.0 > current_distance > 1e-6:
-                self.net_direction = (self.target_location - self.pursuer_location) / current_distance
-            elif np.linalg.norm(self.pursuer_velocity) > 1e-6:
+            if np.linalg.norm(self.pursuer_velocity) > 1e-6:
                 self.net_direction = self.pursuer_velocity / np.linalg.norm(self.pursuer_velocity)
             else:
                 self.net_direction = np.array([1.0, 0.0, 0.0])
@@ -219,11 +219,13 @@ class DroneNetEnv(gym.Env):
                 )
 
                 #  3. Collision check
+                net_speed = np.linalg.norm(self.net_velocity)
+                net_axis = self.net_velocity / net_speed if net_speed > 1e-6 else self.net_direction
+                
                 net_to_target = self.target_location - self.net_location
-                net_to_target_projection = np.dot(self.net_direction, net_to_target)
+                net_to_target_projection = np.dot(net_axis, net_to_target)
                 target_offset = np.sqrt(max(0.0, np.linalg.norm(net_to_target)**2 - net_to_target_projection**2))
 
-                net_speed = np.linalg.norm(self.net_velocity)
                 step_distance = net_speed * Constraints.dt
                 # print(f"Step distance: {step_distance}\n"
                 #       f"target_offset: {target_offset}\n"
@@ -246,12 +248,12 @@ class DroneNetEnv(gym.Env):
                 if self.render_mode == "human":
                     self._render_frame()
             else:
-                reward = -20
+                reward = -50
 
             terminated = True
 
         if truncated:
-            reward = -20
+            reward = -50
 
         observation = self._get_obs()
         info = self._get_info()

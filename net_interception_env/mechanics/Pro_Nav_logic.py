@@ -7,26 +7,13 @@ def get_tpn_acceleration(v_pursuer, v_target, r_pursuer, r_target):
     distance = np.linalg.norm(r)
 
     if distance > 1e-6:
-
-        if distance < 5.0:
+        if np.linalg.norm(v_pursuer) > 1e-2:
+            heading = v_pursuer / np.linalg.norm(v_pursuer)
+        else:
             heading = r / distance
 
-            distance_error = 5.0 - distance
-            radial_dir = r / distance
-
-            v_desired = v_target - (radial_dir * distance_error * 2.0)
-
-            acceleration = (v_desired - v_pursuer) * 5.0
-
-        else:
-
-            if np.linalg.norm(v_pursuer) > 1e-2:
-                heading = v_pursuer / np.linalg.norm(v_pursuer)
-            else:
-                heading = r / distance
-
-            los_rot_rate = np.cross(r, relative_velocity) / (distance ** 2)
-            acceleration = - Constraints.N * np.linalg.norm(v_pursuer) * np.cross(heading, los_rot_rate)
+        los_rot_rate = np.cross(r, relative_velocity) / (distance ** 2)
+        acceleration = - Constraints.N * np.linalg.norm(v_pursuer) * np.cross(heading, los_rot_rate)
     else:
         acceleration = np.zeros(3)
 
