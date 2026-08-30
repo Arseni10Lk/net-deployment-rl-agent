@@ -176,3 +176,5 @@ pyrightconfig.json
 
 # logs
 logs/*
+
+dataset_data/*
