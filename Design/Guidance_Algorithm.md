@@ -60,7 +60,7 @@ At the boundary hypersurface $\mathcal{S} = \{\vec{x} \mid R - R_{safe} = 0\}$, 
 
 ### 2.5 Synthesis of Guidance Strategy Performance
 
-The following structured matrix summarizes the operational parameters, kinematic mechanisms, failure modes, and training impacts across standard baseline guidance laws and the proposed unified solution.
+The following table summarizes the baseline guidance laws vs the proposed unified solution:
 
 | Guidance Strategy | Mathematical Formulation & Kinematic Mechanism | Operational Failure Mode | Impact on RL Policy Training |
 | :--- | :--- | :--- | :--- |
@@ -147,25 +147,9 @@ Because $\mathbf{A}_{cbf}$ and $b_{cbf}$ are continuously differentiable ($C^1/C
 
 : If the RL policy refrains from firing the net, the interceptor smoothly asymptotic-approaches a dynamic standoff orbit at distance $R \approx d_{min} + \epsilon$, matching target velocity ($\dot{R} \to 0$) without experiencing step discontinuities, control chatter, or physical collisions.
 
-## 4. Secondary Architecture: Frenet-Serret Filtered Offset Guidance (FS-FOG)
+### 3.5 Multi-Platform Adaptation & Parameter Scaling
 
-For guidance systems deployed on micro-unmanned aerial vehicles with microcontrollers unable to solve real-time convex QPs, an alternative continuous architecture is Frenet-Serret Filtered Offset Guidance (FS-FOG).Rather than attaching a rigid offset vector to the target's instantaneous body frame, FS-FOG establishes a moving spatial coordinate frame along the target's estimated path curve $\mathcal{C}(s)$ using the Frenet-Serret formulas:
-
-$$\mathbf{T} = \frac{d\vec{p}_t}{ds}, \quad \mathbf{N} = \frac{1}{\kappa} \frac{d\mathbf{T}}{ds}, \quad \mathbf{B} = \mathbf{T} \times \mathbf{N}$$
-
-where $\mathbf{T}, \mathbf{N}, \mathbf{B}$ represent the Tangent, Normal, and Binormal unit vectors, and $\kappa$ is the spatial curvature.
-
-### 4.1 Low-Pass Filtered Virtual Target Dynamics
-
-To eliminate spatial teleportation during evasive maneuvers, the raw offset point $\vec{p}_{raw} = \vec{p}_t - d \cdot \mathbf{T}$ is passed through a second-order vector low-pass filter to generate a smooth virtual target trajectory $\vec{p}_{vt,filtered}$:
-
-$$\ddot{\vec{p}}_{vt,filtered} + 2\zeta\omega_n \dot{\vec{p}}_{vt,filtered} + \omega_n^2 \vec{p}_{vt,filtered} = \omega_n^2 \left( \vec{p}_t - d \cdot \mathbf{T} \right)$$
-
-where $\omega_n$ is the filter natural frequency tuned to match the interceptor's structural control bandwidth, and $\zeta \approx 0.707$ is the damping ratio. By tracking $\vec{p}_{vt,filtered}$ via standard B-GPN, the interceptor's acceleration demand remains strictly bounded and smooth even when the target drone executes high-$g$ evasive turns.
-
-### 4.2 Multi-Platform Adaptation & Parameter Scaling
-
-The physical dynamics of interceptor platforms vary based on vehicle scale, mass properties, and thrust-to-weight ratios. The HOCBF-PN architecture accommodates these variations by tuning specific control hyperparameters. The following structured table provides design guidelines across platform scales.
+The physical dynamics of interceptor platforms vary based on vehicle scale, mass properties, and thrust-to-weight ratios. The HOCBF-PN architecture accommodates these variations by tuning specific control hyperparameters. Recommended hyperparameter guidelines across platform scales:
 
 | Operational Parameter | Light Interceptor Drones (< 2.0 kg) | Medium Interceptor Drones (2.0 kg - 15.0 kg) | Kinematic & Dynamic Rationale |
 | :--- | :--- | :--- | :--- |
@@ -175,9 +159,9 @@ The physical dynamics of interceptor platforms vary based on vehicle scale, mass
 | **Navigation Constant ($N$)** | $N = 4.0 - 5.0$ | $N = 3.0 - 3.5$ | Higher values increase responsiveness; lower values prevent command oscillations. |
 | **Target Acceleration Gain** | Full compensation ($\frac{N}{2}\vec{a}_{t,\perp}$) | Filtered compensation with lag recovery | Prevents sensor noise propagation into heavy motor controllers. |
 
-## 5. Reinforcement Learning Integration & Policy Co-Design
+## 4. Reinforcement Learning Integration & Policy Co-Design
 
-### 5.1 Observation State Space Formulation
+### 4.1 Observation State Space Formulation
 
 Because the underlying HOCBF-PN guidance algorithm deterministically guarantees physical safety and collision avoidance, the discrete RL agent can focus exclusively on maximizing net capture probability. The continuous observation state vector $\mathbf{S}_t \in \mathbb{R}^{14}$ provided to the RL policy at time step $t$ comprises:
 
@@ -189,88 +173,94 @@ $$\tau_{mod} = \frac{R^2 - d_{min}^2}{R \cdot \vert{}\dot{R}\vert{}}$$
 
 and $P_{net\_hit} \in [0, 1]$ is a deterministic geometric projection of net expansion geometry evaluated at the target's relative coordinates.
 
-### 5.2 Operational Control Flow and Action Execution
+### 4.2 Operational Control Flow and Action Execution
 
 The control execution follows a strict multi-rate operational structure:
 
-#### 5.2.1 High-Rate Guidance Loop
+#### 4.2.1 High-Rate Guidance Loop
 
  ($100\text{ Hz} - 500\text{ Hz}$): The onboard flight controller continuously executes the HOCBF-PN algorithm. It reads target state updates, evaluates the HOCBF linear safety constraint $\mathbf{A}_{cbf}\vec{a} \le b_{cbf}$, solves the convex QP, and commands motor thrusts.
 
-#### 5.2.2 Low-Rate Policy Loop
+#### 4.2.2 Low-Rate Policy Loop
 
  ($10\text{ Hz} - 20\text{ Hz}$): The RL agent evaluates the observation vector $\mathbf{S}_t$ and outputs a discrete action $a_t \in \{0, 1\}$ (0: Hold Fire, 1: Fire Net).
 
-#### 5.2.3 Action Execution Logic
+#### 4.2.3 Action Execution Logic
 
 If $a_t = 0$ (Hold Fire): The interceptor continues flying under HOCBF-PN guidance. If the drone reaches $R \approx d_{min}$, the HOCBF automatically overrides nominal PNG, smoothly braking the drone into a safe standoff orbit behind the target. If $a_t = 1$ (Fire Net): The net deployment mechanism triggers instantly, launching the expanded net toward the target. The episode terminates, and terminal rewards are assigned based on capture overlap.
 
-### 5.3 Reward Function Structure
+### 4.3 Reward Function Structure
 
  (Eliminating Panic-Firing)To ensure the agent learns optimal firing timing without premature panic-firing, the reward function $r_t$ isolates capture performance from safety enforcement:
 
-$$r_t = \begin{cases}  +100 \cdot \text{OverlapRatio}(\text{Net}, \text{Target}) & \text{if Action = Fire (Terminal)} \\ -50 & \text{if Action = Fire AND Target Missed (Terminal)} \\ r_{approach}(t) & \text{if Action = Hold Fire (Non-Terminal)} \end{cases}$$
+$$
+r_t = \begin{cases} 
++100 \cdot \text{OverlapRatio}(\text{Net}, \text{Target}) & \text{if Action = Fire (Terminal)} \\ 
+-50 & \text{if Action = Fire AND Target Missed (Terminal)} \\ 
+r_{approach}(t) & \text{if Action = Hold Fire (Non-Terminal)} 
+\end{cases}
+$$
 
 The non-terminal step reward $r_{approach}(t)$ encourages optimal positioning within the effective net firing envelope ($R_{net\_min} \le R \le R_{net\_max}$) without penalizing hold-fire decisions:
 
-$$r_approach(t) = c_1 \cdot \exp\left( -\frac{(R_t - R_{optimal})^2}{2\sigma_R^2} \right) - c_2 \cdot \Vert{}\vec{\omega}_{LOS}\Vert{}^2$$
+$$r_{approach}(t) = c_1 \cdot \exp\left( -\frac{(R_t - R_{optimal})^2}{2\sigma_R^2} \right) - c_2 \cdot \Vert{}\vec{\omega}_{LOS}\Vert{}^2$$
 
 where $c_1, c_2 > 0$ are shaping constants.
 
-### 5.4 Training Dynamics Analysis
+### 4.4 Training Dynamics Analysis
 
-#### 5.4.1 Elimination of Panic Firing
+#### 4.4.1 Elimination of Panic Firing
 
  Because the underlying HOCBF-PN guidance continuously prevents collisions ($\lim_{R \to d_{min}} \dot{R} = 0$), holding fire does not lead to catastrophic episode-terminating crashes. The agent is never forced to panic-fire to avoid a crash penalty.
 
-#### 5.4.2 Smooth Policy Optimization
+#### 4.4.2 Smooth Policy Optimization
 
  The mathematical smoothness ($C^1/C^2$) of the underlying state space allows policy gradient updates (e.g., PPO advantage estimates $A^{\pi}(s,a)$) to remain stable, accelerating training convergence and establishing high true-interception rates.
 
-## 6. Operational Implementation & Verification Roadmap
+## 5. Operational Implementation & Verification Roadmap
 
 Deploying the HOCBF-PN architecture into production requires a structured hardware and software verification pipeline.
 
-### 6.1 Phase 1: Onboard Guidance Engine Integration
+### 5.1 Phase 1: Onboard Guidance Engine Integration
 
 The primary requirement is embedding a fast convex optimization solver into the flight management unit (FMU).
 
-#### 6.1.1 Algorithm Structuring
+#### 5.1.1 Algorithm Structuring
 
  Implement the B-GPN nominal guidance law alongside an Extended Kalman Filter (EKF) running at $100\text{ Hz}$ to estimate target states $\vec{p}_t, \vec{v}_t, \vec{a}_t$.
 
-#### 6.1.2 QP Solver Setup
+#### 5.1.2 QP Solver Setup
 
  Deploy an embedded C++ quadratic program solver (such as OSQP or qpOASES) on the companion computer (e.g., NVIDIA Jetson or Odroid XU4).
 
-#### 6.1.3 Constraint Compilation
+#### 5.1.3 Constraint Compilation
 
- Formulate the HOCBF matrices $\mathbf{A}_{cbf}$ and $b_{cbf}$ using real-time state estimates, enforcing maximum physical acceleration boundaries $\mathbf{A}_{act}\vec{a} \le \vec{b}_{act}$ to ensure motor limits are respected.
+ Formulate the HOCBF matrices $\mathbf{A}\_{cbf}$ and $b\_{cbf}$ using real-time state estimates, enforcing maximum physical acceleration boundaries $\mathbf{A}\_{act}\vec{a} \le \vec{b}\_{act}$ to ensure motor limits are respected.
 
-### 6.2 Phase 2: Simulation Training Environment
+### 5.2 Phase 2: Simulation Training Environment
 
 The reinforcement learning policy is trained in a physics-accurate 3D simulator (e.g., Gazebo, AirSim, or Isaac Gym).
 
-#### 6.2.1 Environment Wrapping
+#### 5.2.1 Environment Wrapping
 
  Enclose the multi-rate framework in an OpenAI Gymnasium interface, exposing the $14$-dimensional observation state $\mathbf{S}_t$ to the discrete RL policy.
 
-#### 6.2.2 Target Evasion Modeling
+#### 5.2.2 Target Evasion Modeling
 
  Train the discrete action policy against diverse target behaviors, ranging from passive straight-line flight to aggressive, non-cooperative evasive maneuvers (e.g., high-$g$ weaves, dynamic braking, sharp turns).
 
-#### 6.2.3 Hyperparameter Optimization
+#### 5.2.3 Hyperparameter Optimization
 
  Train the policy using Proximal Policy Optimization (PPO) with clipped surrogate objectives to maintain policy update stability.
 
-### 6.3 Phase 3: Hardware Verification Testing
+### 5.3 Phase 3: Hardware Verification Testing
 
 Before full flight authorization, the combined system must undergo staged validation:
 
-#### 6.3.1 Hold-Fire Verification
+#### 5.3.1 Hold-Fire Verification
 
  Lock the RL agent action to $a_t = 0$ (Hold Fire) and fly aggressive pursuit intercepts against an agile evader. Confirm that the HOCBF-PN layer smoothly decelerates the interceptor into a standoff orbit at $R \approx d_{min} + \epsilon$ without boundary chatter, instability, or physical contact.
 
-#### 6.3.2 Full Engagement Testing
+#### 5.3.2 Full Engagement Testing
 
  Enable the discrete RL policy to execute net firing decisions. Verify that the agent learns to delay deployment until the target is centered within the optimal capture cone ($P_{net\_hit} > 0.85$), achieving high physical capture rates without experiencing premature panic-firing or mid-air collisions.
