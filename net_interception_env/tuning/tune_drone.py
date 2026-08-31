@@ -6,12 +6,8 @@ from scipy.stats import norm
 from scipy.optimize import minimize
 from stable_baselines3.common.callbacks import BaseCallback
 from typing import Callable
-from torch.jit import last_executed_optimized_graph
-from stable_baselines3.common.env_util import make_vec_env
-from stable_baselines3.common.vec_env import SubprocVecEnv
 import re
 
-import net_interception_env
 import gymnasium as gym
 from stable_baselines3 import DQN
 import json
@@ -29,23 +25,26 @@ num_trials = 20
 
 # 1. Define bounds
 bounds_list = [
-    (3.0, 4.0),             # 0: the negative power of 10 for learning_rate initial
-    (1.0, 2.0),             # 1: negative power of 10 for exploration_initial_eps
-    (2.0, 4.0),             # 2: negative power of 10 for exploration_final_eps
-    (0.1, 1.0),             # 3: exploration_fraction
-    (3.0, 4.0),             # 4: negative power of 10 for 1-gamma
-    (0.3, 1.5),             # 5: target_update_interval / 1e4
-    (4.0, 6.0)              # 6: the negative power of 10 for learning_rate final
+    (3.0, 4.0),  # 0: the negative power of 10 for learning_rate initial
+    (1.0, 2.0),  # 1: negative power of 10 for exploration_initial_eps
+    (2.0, 4.0),  # 2: negative power of 10 for exploration_final_eps
+    (0.1, 1.0),  # 3: exploration_fraction
+    (3.0, 4.0),  # 4: negative power of 10 for 1-gamma
+    (0.3, 1.5),  # 5: target_update_interval / 1e4
+    (4.0, 6.0),  # 6: the negative power of 10 for learning_rate final
 ]
 
+
 class PruningCallback(BaseCallback):
-    def __init__(self,
-                env_name: str,
-                verbose=0,
-                chunks=chunks,
-                num_eval_episodes=500,
-                chunk_history=None,
-                threshold_fraction=1):
+    def __init__(
+        self,
+        env_name: str,
+        verbose=0,
+        chunks=chunks,
+        num_eval_episodes=500,
+        chunk_history=None,
+        threshold_fraction=1,
+    ):
         super().__init__(verbose)
         self.env = env_name
         self.verbose = verbose
@@ -73,23 +72,35 @@ class PruningCallback(BaseCallback):
             memory = num_trials // (self.current_chunk + 1)
 
             print(f"Verifying chunk {self.current_chunk}/{chunks}...")
-            self.model.save(f"training_model_checkpoints/dqn_drone3D_checkpoint_{self.current_chunk}")
-            self.accuracy, score = train_drone.verify("DroneNet-3D", self.model, self.num_eval_episodes)
+            self.model.save(
+                f"training_model_checkpoints/dqn_drone3D_checkpoint_{self.current_chunk}"
+            )
+            self.accuracy, score = train_drone.verify(
+                "DroneNet-3D", self.model, self.num_eval_episodes
+            )
 
             if len(self.chunk_history[self.current_chunk - 1]) >= memory:
-                threshold = min(self.chunk_history[self.current_chunk - 1])  * self.threshold_fraction
+                threshold = (
+                    min(self.chunk_history[self.current_chunk - 1])
+                    * self.threshold_fraction
+                )
 
                 if score < threshold:
-                    print(f"--> PRUNED! Trial killed at chunk {self.current_chunk}/{chunks}. Score: {score}")
+                    print(
+                        f"--> PRUNED! Trial killed at chunk {self.current_chunk}/{chunks}. Score: {score}"
+                    )
                     self.pruned = True
 
             self.scores.append(score)
             self.chunk_history[self.current_chunk - 1].append(score)
-            self.chunk_history[self.current_chunk - 1] = sorted(self.chunk_history[self.current_chunk - 1], reverse=True)[:memory]
+            self.chunk_history[self.current_chunk - 1] = sorted(
+                self.chunk_history[self.current_chunk - 1], reverse=True
+            )[:memory]
 
             return False if self.pruned else True
 
         return True
+
 
 def linear_schedule(initial_value: float, final_value) -> Callable[[float], float]:
 
@@ -105,6 +116,7 @@ def linear_schedule(initial_value: float, final_value) -> Callable[[float], floa
         return progress_remaining * delta + final_value
 
     return func
+
 
 # 2. Sampler
 def bayesian_sample(bounds, past_params, past_scores, best_score):
@@ -133,17 +145,19 @@ def bayesian_sample(bounds, past_params, past_scores, best_score):
         return -ei[0]
 
     best_x = None
-    best_ei = float('inf')
+    best_ei = float("inf")
 
     for _ in range(10):  # Multi-start 10 times
-        starting_guess = np.array([np.random.uniform(low, high) for low, high in bounds])
+        starting_guess = np.array(
+            [np.random.uniform(low, high) for low, high in bounds]
+        )
 
         result = minimize(
             scaled_expected_improvement,
             x0=starting_guess,
             bounds=bounds_list,
             args=(gp, best_score, scaler),
-            method='L-BFGS-B'
+            method="L-BFGS-B",
         )
 
         if result.fun < best_ei:
@@ -151,6 +165,7 @@ def bayesian_sample(bounds, past_params, past_scores, best_score):
             best_x = result.x
 
     return best_x
+
 
 # 3. Objective Function
 def evaluate_model(params, chunk_history):
@@ -169,10 +184,17 @@ def evaluate_model(params, chunk_history):
     num_eval_episodes = 500
 
     my_pruning_callback = PruningCallback(
-        env_name, verbose=1, chunks=chunks, num_eval_episodes=num_eval_episodes, chunk_history=chunk_history, threshold_fraction=0.8
+        env_name,
+        verbose=1,
+        chunks=chunks,
+        num_eval_episodes=num_eval_episodes,
+        chunk_history=chunk_history,
+        threshold_fraction=0.8,
     )
 
-    model.learn(total_timesteps=steps_total, log_interval=100, callback=my_pruning_callback)
+    model.learn(
+        total_timesteps=steps_total, log_interval=100, callback=my_pruning_callback
+    )
     env.close()
 
     accuracy = my_pruning_callback.accuracy
@@ -181,15 +203,16 @@ def evaluate_model(params, chunk_history):
 
     return accuracy, scores, model, pruned
 
+
 def load_params_from_the_last_run(filename, number=5):
-    with open(filename, mode='r', newline='') as tuning_log:
+    with open(filename, mode="r", newline="") as tuning_log:
         csvreader = csv.reader(tuning_log)
         header = next(csvreader)
         num_steps_old = 0
 
         for column in header:
             if "After" in column:
-                match = re.search(r'\d+', column)
+                match = re.search(r"\d+", column)
                 num_steps_old = max(num_steps_old, int(match.group(0)))
 
         print(f"Extracted old training length: {num_steps_old} steps")
@@ -215,6 +238,7 @@ def load_params_from_the_last_run(filename, number=5):
 
     return num_steps_old, [[float(val) for val in row] for row in hyperparameters]
 
+
 def pre_trials(log_file_old, log_file_new, number=5):
     old_num_steps, last_run_params = load_params_from_the_last_run(log_file_old, number)
     past_params_list = []
@@ -228,13 +252,17 @@ def pre_trials(log_file_old, log_file_new, number=5):
             "learning_rate": last_run_params[pre_trial][0],
             "exploration_initial_eps": last_run_params[pre_trial][1],
             "exploration_final_eps": last_run_params[pre_trial][2],
-            "exploration_fraction": last_run_params[pre_trial][3] / steps_total * old_num_steps,
+            "exploration_fraction": last_run_params[pre_trial][3]
+            / steps_total
+            * old_num_steps,
             "batch_size": 256,
             "gamma": last_run_params[pre_trial][4],
             "target_update_interval": int(last_run_params[pre_trial][5]),
         }
 
-        accuracy, scores, trained_model, pruned = evaluate_model(model_kwargs, chunk_history)
+        accuracy, scores, trained_model, pruned = evaluate_model(
+            model_kwargs, chunk_history
+        )
         final_score = scores[-1]
 
         raw_params = model_to_raw_params(last_run_params[pre_trial])
@@ -243,18 +271,23 @@ def pre_trials(log_file_old, log_file_new, number=5):
 
         status = "Pruned" if pruned else "Completed"
 
-        with open(log_file_new, mode='a', newline='') as file:
+        with open(log_file_new, mode="a", newline="") as file:
             all_col_scores = scores + [""] * (chunks - len(scores))
 
             writer = csv.writer(file)
-            writer.writerow([
-                pre_trial + 1, status, final_score, accuracy,
-                model_kwargs["learning_rate"],
-                model_kwargs["exploration_initial_eps"],
-                model_kwargs["exploration_final_eps"],
-                model_kwargs["exploration_fraction"],
-                model_kwargs["gamma"],
-                model_kwargs["target_update_interval"]]
+            writer.writerow(
+                [
+                    pre_trial + 1,
+                    status,
+                    final_score,
+                    accuracy,
+                    model_kwargs["learning_rate"],
+                    model_kwargs["exploration_initial_eps"],
+                    model_kwargs["exploration_final_eps"],
+                    model_kwargs["exploration_fraction"],
+                    model_kwargs["gamma"],
+                    model_kwargs["target_update_interval"],
+                ]
                 + all_col_scores
             )
 
@@ -262,7 +295,9 @@ def pre_trials(log_file_old, log_file_new, number=5):
             best_score = final_score
             best_params = model_kwargs
 
-            print(f"New high score! Saving model with score: {best_score}, accuracy: {accuracy}")
+            print(
+                f"New high score! Saving model with score: {best_score}, accuracy: {accuracy}"
+            )
             trained_model.save("best_drone_model")
 
             with open("best_params.json", "w") as f:
@@ -270,12 +305,13 @@ def pre_trials(log_file_old, log_file_new, number=5):
 
     return past_params_list, past_scores_list, best_score
 
+
 def load_past_trials(log_file):
     past_params_list = []
     past_scores_list = []
     best_score = -float("inf")
     chunk_history = {i: [] for i in range(chunks)}
-    with open(log_file, mode='r', newline='') as file:
+    with open(log_file, mode="r", newline="") as file:
         reader = csv.reader(file)
         next(reader)
         for row in reader:
@@ -285,8 +321,8 @@ def load_past_trials(log_file):
             past_params_list.append(model_to_raw_params(model_params))
 
             for i in range(chunks):
-                if row[10+i] != "":
-                    chunk_history[i].append(float(row[10+i]))
+                if row[10 + i] != "":
+                    chunk_history[i].append(float(row[10 + i]))
 
     for chunk in range(chunks):
         memory = num_trials // (chunk + 2)
@@ -294,19 +330,21 @@ def load_past_trials(log_file):
 
     return past_params_list, past_scores_list, best_score, chunk_history
 
+
 def model_to_raw_params(model_params):
     model_params = [float(p) for p in model_params]
 
     raw_params = [
-        - np.log10(model_params[0]),
-        - np.log10(model_params[1]),
-        - np.log10(model_params[2]),
+        -np.log10(model_params[0]),
+        -np.log10(model_params[1]),
+        -np.log10(model_params[2]),
         model_params[3],
-        - np.log10(1 - model_params[4]),
+        -np.log10(1 - model_params[4]),
         model_params[5] / 1e4,
-        - np.log10(model_params[6])
+        -np.log10(model_params[6]),
     ]
     return raw_params
+
 
 if __name__ == "__main__":
 
@@ -320,64 +358,91 @@ if __name__ == "__main__":
     log_file = "tuning_log_v6.csv"
     # Create the file and write the header if it doesn't exist
     if not os.path.exists(log_file):
-        with open(log_file, mode='w', newline='') as file:
+        with open(log_file, mode="w", newline="") as file:
             writer = csv.writer(file)
 
             chunks_header = []
             for chunk in range(chunks):
                 chunks_header.append(f"After {int(steps_total // chunks * (chunk+1))}")
 
-            writer.writerow([
-                "Trial", "Status", "Final Score", "Accuracy", "LR_initial",
-                "LR_final", "Init_Eps", "Final_Eps", "Eps_Fraction",
-                "gamma", "target_update_interval"] + chunks_header
-                )
+            writer.writerow(
+                [
+                    "Trial",
+                    "Status",
+                    "Final Score",
+                    "Accuracy",
+                    "LR_initial",
+                    "LR_final",
+                    "Init_Eps",
+                    "Final_Eps",
+                    "Eps_Fraction",
+                    "gamma",
+                    "target_update_interval",
+                ]
+                + chunks_header
+            )
 
         # num_pre_trials = 5
         # past_params_list, past_scores_list, best_score = pre_trials('tuning_log_v3.csv', log_file, num_pre_trials)
 
     else:
-        past_params_list, past_scores_list, best_score, chunk_history = load_past_trials(log_file)
+        (
+            past_params_list,
+            past_scores_list,
+            best_score,
+            chunk_history,
+        ) = load_past_trials(log_file)
 
     for trial in range(num_trials - len(past_params_list)):
-        raw_params = bayesian_sample(bounds_list, np.array(past_params_list), past_scores_list, best_score)
+        raw_params = bayesian_sample(
+            bounds_list, np.array(past_params_list), past_scores_list, best_score
+        )
 
         # Convert the array back to a usable dictionary
         model_kwargs = {
-            "learning_rate_initial":    10**-raw_params[0],
-            "learning_rate_final":      10**-raw_params[6],
-            "exploration_initial_eps":  10**-raw_params[1],
-            "exploration_final_eps":    10**-raw_params[2],
-            "exploration_fraction":     raw_params[3],
-            "batch_size":               256,
-            "gamma":                    1 - 10**-raw_params[4],
-            "target_update_interval":   int(round(1e4 * raw_params[5])),
+            "learning_rate_initial": 10 ** -raw_params[0],
+            "learning_rate_final": 10 ** -raw_params[6],
+            "exploration_initial_eps": 10 ** -raw_params[1],
+            "exploration_final_eps": 10 ** -raw_params[2],
+            "exploration_fraction": raw_params[3],
+            "batch_size": 256,
+            "gamma": 1 - 10 ** -raw_params[4],
+            "target_update_interval": int(round(1e4 * raw_params[5])),
         }
 
         # Evaluate the chosen parameters
-        accuracy, scores, trained_model, pruned = evaluate_model(model_kwargs, chunk_history)
+        accuracy, scores, trained_model, pruned = evaluate_model(
+            model_kwargs, chunk_history
+        )
         final_score = scores[-1]
 
         status = "Pruned" if pruned else "Completed"
 
         current_trial_num = len(past_params_list) + 1
-        trained_model.save(f'models/model_{current_trial_num}')
+        trained_model.save(f"models/model_{current_trial_num}")
 
         past_params_list.append(raw_params)
         past_scores_list.append(final_score)
 
-        with open(log_file, mode='a', newline='') as file:
+        with open(log_file, mode="a", newline="") as file:
             all_col_scores = scores + [""] * (chunks - len(scores))
             writer = csv.writer(file)
-            writer.writerow([len(past_params_list), status, final_score, accuracy,
-                                model_kwargs["learning_rate_initial"],
-                                model_kwargs["learning_rate_final"],
-                                model_kwargs["exploration_initial_eps"],
-                                model_kwargs["exploration_final_eps"],
-                                model_kwargs["exploration_fraction"],
-                                model_kwargs["gamma"],
-                                model_kwargs["target_update_interval"]] +
-                                all_col_scores)
+            writer.writerow(
+                [
+                    len(past_params_list),
+                    status,
+                    final_score,
+                    accuracy,
+                    model_kwargs["learning_rate_initial"],
+                    model_kwargs["learning_rate_final"],
+                    model_kwargs["exploration_initial_eps"],
+                    model_kwargs["exploration_final_eps"],
+                    model_kwargs["exploration_fraction"],
+                    model_kwargs["gamma"],
+                    model_kwargs["target_update_interval"],
+                ]
+                + all_col_scores
+            )
 
         if final_score > best_score:
             best_score = final_score

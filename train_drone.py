@@ -1,15 +1,10 @@
 import gymnasium as gym
 import json
 
-from gymnasium.envs import toy_text
 from stable_baselines3 import DQN
 import csv
-from gymnasium.wrappers import RecordVideo
 from stable_baselines3.common.callbacks import BaseCallback
-from stable_baselines3.common.env_util import make_vec_env
-from stable_baselines3.common.vec_env import SubprocVecEnv
 
-import net_interception_env
 
 class BatchContinuationCallback(BaseCallback):
     def __init__(self, env_name: str, verbose=1, batches=10, total_timesteps=1e6):
@@ -26,12 +21,15 @@ class BatchContinuationCallback(BaseCallback):
             self.current_batch += 1
 
             print(f"Verifying batch {self.current_batch}/{self.batches}...")
-            self.model.save(f"training_model_checkpoints/dqn_drone3D_checkpoint_{self.current_batch}")
+            self.model.save(
+                f"training_model_checkpoints/dqn_drone3D_checkpoint_{self.current_batch}"
+            )
             self.accuracy, self.accuracy_score = verify("DroneNet-3D", self.model)
 
             record_verification(self.current_batch, self.accuracy, self.accuracy_score)
 
         return True
+
 
 def verify(env_name, model, num_episodes=500):
     test_env = gym.make(env_name)
@@ -57,21 +55,25 @@ def verify(env_name, model, num_episodes=500):
 
     accuracy = (success / num_episodes) * 100
     miss_percentage = (miss / num_episodes) * 100
-    accuracy_score = accuracy + miss_percentage / 10 # encourage trying
+    accuracy_score = accuracy + miss_percentage / 10  # encourage trying
 
-    print(f"Evaluation finished! Accuracy: {accuracy:.2f}% ({success}/{num_episodes})\n"
-          f"Misses: {miss_percentage:.2f}% ({miss}/{num_episodes})\n"
-          f"Timed out: {timed_out}/{num_episodes}\n"
-          f"Score: {accuracy_score:.2f}")
+    print(
+        f"Evaluation finished! Accuracy: {accuracy:.2f}% ({success}/{num_episodes})\n"
+        f"Misses: {miss_percentage:.2f}% ({miss}/{num_episodes})\n"
+        f"Timed out: {timed_out}/{num_episodes}\n"
+        f"Score: {accuracy_score:.2f}"
+    )
 
     test_env.close()
 
     return accuracy, accuracy_score
 
+
 def record_verification(batch, accuracy, accuracy_score):
     with open("verification.csv", "a") as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow([batch + 1, accuracy, accuracy_score])
+
 
 if __name__ == "__main__":
     env_name = "DroneNet-3D"
@@ -86,7 +88,7 @@ if __name__ == "__main__":
     timesteps = int(2e6)
 
     batch_callback = BatchContinuationCallback(
-        env_name, verbose = 1, batches = batches, total_timesteps = timesteps
+        env_name, verbose=1, batches=batches, total_timesteps=timesteps
     )
 
     model.learn(

@@ -9,12 +9,13 @@ class Actions(Enum):
     dont_shoot = 0
     do_shoot = 1
 
+
 class DroneNetEnv(gym.Env):
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 10}
 
     def __init__(self, render_mode=None, marker_size=5, size=512, max_steps=1000):
         self.size = size  # The size of the environment
-        self.marker_size = marker_size # The size of the markers
+        self.marker_size = marker_size  # The size of the markers
         self.window_size = 512  # The size of the PyGame window
 
         self.observation_space = spaces.Dict(
@@ -44,7 +45,6 @@ class DroneNetEnv(gym.Env):
 
         self.max_steps = max_steps
 
-
     def _get_obs(self):
         return {"distance": abs(self._target_location - self._agent_location)}
 
@@ -56,10 +56,14 @@ class DroneNetEnv(gym.Env):
         super().reset(seed=seed)
 
         # Choose the agent's location uniformly at random
-        self._agent_location = self.np_random.uniform(0, self.size, size=1).astype(np.float32)
+        self._agent_location = self.np_random.uniform(0, self.size, size=1).astype(
+            np.float32
+        )
 
         # The target's location is chosen the same way
-        self._target_location = self.np_random.uniform(0, self.size, size=1).astype(np.float32)
+        self._target_location = self.np_random.uniform(0, self.size, size=1).astype(
+            np.float32
+        )
         self.target_direction = self.np_random.integers(-1, 2)
 
         observation = self._get_obs()
@@ -82,13 +86,17 @@ class DroneNetEnv(gym.Env):
         truncated = False
 
         direction = np.sign(self._target_location - self._agent_location)
-        self.target_direction = np.clip(self.np_random.normal(
-            self.target_direction,
-            0.2,
-        ), -1.0, 1.0)
+        self.target_direction = np.clip(
+            self.np_random.normal(
+                self.target_direction,
+                0.2,
+            ),
+            -1.0,
+            1.0,
+        )
 
         self._agent_location = np.clip(
-            self._agent_location + direction*0.5, 0, self.size - 1
+            self._agent_location + direction * 0.5, 0, self.size - 1
         ).astype(np.float32)
 
         self._target_location = np.clip(
@@ -107,7 +115,7 @@ class DroneNetEnv(gym.Env):
                 terminated = True
                 reward = -1
         elif truncated:
-                reward = -1
+            reward = -1
 
         observation = self._get_obs()
         info = self._get_info()

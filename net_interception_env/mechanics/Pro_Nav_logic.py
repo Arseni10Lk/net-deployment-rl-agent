@@ -1,6 +1,7 @@
 import numpy as np
 from net_interception_env.mechanics import Constraints
 
+
 def get_tpn_acceleration(v_pursuer, v_target, r_pursuer, r_target):
     relative_velocity = v_target - v_pursuer
     r = r_target - r_pursuer
@@ -12,8 +13,10 @@ def get_tpn_acceleration(v_pursuer, v_target, r_pursuer, r_target):
         else:
             heading = r / distance
 
-        los_rot_rate = np.cross(r, relative_velocity) / (distance ** 2)
-        acceleration = - Constraints.N * np.linalg.norm(v_pursuer) * np.cross(heading, los_rot_rate)
+        los_rot_rate = np.cross(r, relative_velocity) / (distance**2)
+        acceleration = (
+            -Constraints.N * np.linalg.norm(v_pursuer) * np.cross(heading, los_rot_rate)
+        )
     else:
         acceleration = np.zeros(3)
 
@@ -23,6 +26,7 @@ def get_tpn_acceleration(v_pursuer, v_target, r_pursuer, r_target):
 
     # Return ONLY acceleration (since you aren't using alignment in the reward)
     return acceleration
+
 
 def get_new_location(acceleration, old_v, old_r, max_speed=1000, old_radius=0):
 
@@ -37,13 +41,20 @@ def get_new_location(acceleration, old_v, old_r, max_speed=1000, old_radius=0):
 
     return position, velocity, radius
 
+
 def target_accelaration(old_a):
 
     acceleration = np.random.uniform(
-        old_a - Constraints.TARGET_DELTA_ACCELERATION, old_a + Constraints.TARGET_DELTA_ACCELERATION, size=3
+        old_a - Constraints.TARGET_DELTA_ACCELERATION,
+        old_a + Constraints.TARGET_DELTA_ACCELERATION,
+        size=3,
     ).astype(np.float32)
 
     if np.linalg.norm(acceleration) > Constraints.MAX_TARGET_ACCELERATION:
-        acceleration = acceleration / np.linalg.norm(acceleration) * Constraints.MAX_TARGET_ACCELERATION
+        acceleration = (
+            acceleration
+            / np.linalg.norm(acceleration)
+            * Constraints.MAX_TARGET_ACCELERATION
+        )
 
     return acceleration

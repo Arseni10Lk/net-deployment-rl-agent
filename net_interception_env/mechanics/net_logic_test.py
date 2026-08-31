@@ -1,7 +1,7 @@
 import gymnasium as gym
-import net_interception_env  # Ensures the environment is registered
 import time
 import numpy as np
+
 # Initialize the environment with human rendering
 env = gym.make("DroneNet-3D", render_mode="human")
 obs, info = env.reset()

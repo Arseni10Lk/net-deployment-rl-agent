@@ -1,8 +1,7 @@
 import gymnasium as gym
 from stable_baselines3 import DQN
-import net_interception_env
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     visual_env = gym.make("DroneNet-3D", render_mode="human")
 
     model = DQN.load("net_interception_env/tuning/best_drone_model.zip")

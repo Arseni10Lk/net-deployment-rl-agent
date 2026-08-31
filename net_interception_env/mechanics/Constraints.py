@@ -1,6 +1,6 @@
-N = 3 # Pro-Nav constant
+N = 3  # Pro-Nav constant
 
-dt = 0.1 # for the simulation
+dt = 0.1  # for the simulation
 
 # Interceptor
 MAX_UAV_SPEED = 10
@@ -12,6 +12,6 @@ MAX_TARGET_ACCELERATION = 3
 TARGET_DELTA_ACCELERATION = 1
 
 # Net
-EXPANSION_RATE = 0.2 # m / m_of_flight
+EXPANSION_RATE = 0.2  # m / m_of_flight
 EXTRA_VELOCITY = 10
-MAX_NET_FLIGHT_STEPS = 1000 # temporary constraint
+MAX_NET_FLIGHT_STEPS = 1000  # temporary constraint

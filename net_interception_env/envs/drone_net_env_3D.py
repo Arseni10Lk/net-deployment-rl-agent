@@ -3,19 +3,24 @@ import gymnasium as gym
 from gymnasium import spaces
 import pygame
 import numpy as np
-from torch._C import dtype
-from net_interception_env.mechanics import Pro_Nav_logic as tpn, Constraints, Pro_Nav_logic
+from net_interception_env.mechanics import (
+    Pro_Nav_logic as tpn,
+    Constraints,
+    Pro_Nav_logic,
+)
+
 
 class Actions(Enum):
     dont_shoot = 0
     do_shoot = 1
+
 
 class DroneNetEnv(gym.Env):
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 30}
 
     def __init__(self, render_mode=None, marker_size=5, size=512, max_steps=1000):
         self.size = size  # The size of the environment
-        self.marker_size = marker_size # The size of the markers
+        self.marker_size = marker_size  # The size of the markers
         self.window_size = 512  # The size of the PyGame window
 
         self.observation_space = spaces.Dict(
@@ -23,15 +28,14 @@ class DroneNetEnv(gym.Env):
                 # Normalized between 0 and 1
                 "distance": spaces.Box(0, 1.0, shape=(1,), dtype=np.float32),
                 "closing velocity": spaces.Box(-1.0, 1.0, shape=(1,), dtype=np.float32),
-
                 # Relative position normalized between -1 and 1
-                "Relative position": spaces.Box(-1.0, 1.0, shape=(3,), dtype=np.float32),
-
+                "Relative position": spaces.Box(
+                    -1.0, 1.0, shape=(3,), dtype=np.float32
+                ),
                 # Velocities normalized between -1 and 1
                 "UAV velocity": spaces.Box(-1.0, 1.0, shape=(3,), dtype=np.float32),
                 "Target velocity": spaces.Box(-1.0, 1.0, shape=(3,), dtype=np.float32),
-
-                "alignment": spaces.Box(-1.0, 1.0, shape=(1,), dtype=np.float32)
+                "alignment": spaces.Box(-1.0, 1.0, shape=(1,), dtype=np.float32),
             }
         )
 
@@ -69,39 +73,50 @@ class DroneNetEnv(gym.Env):
             closing_vel = 0.0
 
         if np.linalg.norm(self.pursuer_velocity) > 1e-6:
-            current_heading = self.pursuer_velocity / np.linalg.norm(self.pursuer_velocity)
+            current_heading = self.pursuer_velocity / np.linalg.norm(
+                self.pursuer_velocity
+            )
         else:
             current_heading = np.array([1.0, 0.0, 0.0])
 
-        los_vector = (relative_pos / distance) if distance > 1e-6 else np.array([1.0, 0.0, 0.0])
+        los_vector = (
+            (relative_pos / distance) if distance > 1e-6 else np.array([1.0, 0.0, 0.0])
+        )
         alignment = np.dot(current_heading, los_vector)
 
         return {
             "distance": np.array([distance / max_dist], dtype=np.float32),
-            "closing velocity": np.array([closing_vel / max_closing_vel], dtype=np.float32),
-
+            "closing velocity": np.array(
+                [closing_vel / max_closing_vel], dtype=np.float32
+            ),
             # Divide by self.size to keep XYZ components between -1 and 1
             "Relative position": (relative_pos / self.size).astype(np.float32),
-
             # Divide velocities by their respective max constraints
-            "UAV velocity": (self.pursuer_velocity / Constraints.MAX_UAV_SPEED).astype(np.float32),
-            "Target velocity": (self.target_velocity / Constraints.MAX_TARGET_SPEED).astype(np.float32),
-
-            "alignment": np.array([alignment], dtype=np.float32)
+            "UAV velocity": (self.pursuer_velocity / Constraints.MAX_UAV_SPEED).astype(
+                np.float32
+            ),
+            "Target velocity": (
+                self.target_velocity / Constraints.MAX_TARGET_SPEED
+            ).astype(np.float32),
+            "alignment": np.array([alignment], dtype=np.float32),
         }
 
     def _get_info(self):
-        return {"pursuer location": self.pursuer_location,
-                "pursuer velocity": self.pursuer_velocity,
-                "target location": self.target_location,
-                "target velocity": self.target_velocity}
+        return {
+            "pursuer location": self.pursuer_location,
+            "pursuer velocity": self.pursuer_velocity,
+            "target location": self.target_location,
+            "target velocity": self.target_velocity,
+        }
 
     def reset(self, seed=None, options=None):
         # We need the following line to seed self.np_random
         super().reset(seed=seed)
 
         # Choose the agent's location and velocity uniformly at random
-        self.pursuer_location = self.np_random.uniform(150, self.size - 150, size=3).astype(np.float32)
+        self.pursuer_location = self.np_random.uniform(
+            150, self.size - 150, size=3
+        ).astype(np.float32)
         self.pursuer_velocity = self.np_random.uniform(
             -Constraints.MAX_UAV_SPEED, Constraints.MAX_UAV_SPEED, size=3
         ).astype(np.float32)
@@ -110,29 +125,45 @@ class DroneNetEnv(gym.Env):
         spawn_dist = self.np_random.uniform(30, 150)
         spawn_dir = self.np_random.normal(0, 1, size=3)
         spawn_dir /= np.linalg.norm(spawn_dir)
-        self.target_location = (self.pursuer_location + spawn_dir * spawn_dist).astype(np.float32)
-        
+        self.target_location = (self.pursuer_location + spawn_dir * spawn_dist).astype(
+            np.float32
+        )
+
         self.target_velocity = self.np_random.uniform(
             -Constraints.MAX_TARGET_SPEED, Constraints.MAX_TARGET_SPEED, size=3
         ).astype(np.float32)
         self.target_acceleration = self.np_random.uniform(
-            -Constraints.MAX_TARGET_ACCELERATION, Constraints.MAX_TARGET_ACCELERATION, size=3
+            -Constraints.MAX_TARGET_ACCELERATION,
+            Constraints.MAX_TARGET_ACCELERATION,
+            size=3,
         ).astype(np.float32)
 
         # So that the generated velocities and accelarations are within physical boundaries
         if np.linalg.norm(self.pursuer_velocity) > Constraints.MAX_UAV_SPEED:
-            self.pursuer_velocity = self.pursuer_velocity / np.linalg.norm(
-                self.pursuer_velocity) * Constraints.MAX_UAV_SPEED
+            self.pursuer_velocity = (
+                self.pursuer_velocity
+                / np.linalg.norm(self.pursuer_velocity)
+                * Constraints.MAX_UAV_SPEED
+            )
 
         if np.linalg.norm(self.target_velocity) > Constraints.MAX_TARGET_SPEED:
-            self.target_velocity = self.target_velocity / np.linalg.norm(
-                self.target_velocity) * Constraints.MAX_TARGET_SPEED
+            self.target_velocity = (
+                self.target_velocity
+                / np.linalg.norm(self.target_velocity)
+                * Constraints.MAX_TARGET_SPEED
+            )
 
-        if np.linalg.norm(self.target_acceleration) > Constraints.MAX_TARGET_ACCELERATION:
-            self.target_acceleration = self.target_acceleration / np.linalg.norm(
-                self.target_acceleration) * Constraints.MAX_TARGET_ACCELERATION
+        if (
+            np.linalg.norm(self.target_acceleration)
+            > Constraints.MAX_TARGET_ACCELERATION
+        ):
+            self.target_acceleration = (
+                self.target_acceleration
+                / np.linalg.norm(self.target_acceleration)
+                * Constraints.MAX_TARGET_ACCELERATION
+            )
 
-        if hasattr(self, 'net_location'):
+        if hasattr(self, "net_location"):
             del self.net_location
             del self.net_direction
             del self.net_radius
@@ -159,29 +190,37 @@ class DroneNetEnv(gym.Env):
         # Moving the pursuer
 
         uav_acceleration = tpn.get_tpn_acceleration(
-            self.pursuer_velocity, self.target_velocity,
-            self.pursuer_location, self.target_location
+            self.pursuer_velocity,
+            self.target_velocity,
+            self.pursuer_location,
+            self.target_location,
         )
 
         uav_location, self.pursuer_velocity, _ = tpn.get_new_location(
-            uav_acceleration, self.pursuer_velocity, self.pursuer_location, Constraints.MAX_UAV_SPEED
+            uav_acceleration,
+            self.pursuer_velocity,
+            self.pursuer_location,
+            Constraints.MAX_UAV_SPEED,
         )
 
-        self.pursuer_location = np.clip(
-            uav_location, 0, self.size - 1
-        ).astype(np.float32)
+        self.pursuer_location = np.clip(uav_location, 0, self.size - 1).astype(
+            np.float32
+        )
 
         # Moving the target
 
         self.target_acceleration = tpn.target_accelaration(self.target_acceleration)
 
         new_target_location, self.target_velocity, _ = tpn.get_new_location(
-            self.target_acceleration, self.target_velocity, self.target_location, Constraints.MAX_TARGET_SPEED
+            self.target_acceleration,
+            self.target_velocity,
+            self.target_location,
+            Constraints.MAX_TARGET_SPEED,
         )
 
-        self.target_location = np.clip(
-            new_target_location, 0, self.size - 1
-        ).astype(np.float32)
+        self.target_location = np.clip(new_target_location, 0, self.size - 1).astype(
+            np.float32
+        )
 
         if self.timestep >= self.max_steps:
             truncated = True
@@ -190,18 +229,26 @@ class DroneNetEnv(gym.Env):
             self.net_location = self.pursuer_location.copy()
             self.net_radius = 0.1  # m
 
-            current_distance = np.linalg.norm(self.target_location - self.pursuer_location)
+            np.linalg.norm(self.target_location - self.pursuer_location)
 
             if np.linalg.norm(self.pursuer_velocity) > 1e-6:
-                self.net_direction = self.pursuer_velocity / np.linalg.norm(self.pursuer_velocity)
+                self.net_direction = self.pursuer_velocity / np.linalg.norm(
+                    self.pursuer_velocity
+                )
             else:
                 self.net_direction = np.array([1.0, 0.0, 0.0])
 
-            self.net_velocity = self.pursuer_velocity + self.net_direction*Constraints.EXTRA_VELOCITY
-            self.fire_distance = max(0.1, np.linalg.norm(self.target_location - self.pursuer_location))
+            self.net_velocity = (
+                self.pursuer_velocity + self.net_direction * Constraints.EXTRA_VELOCITY
+            )
+            self.fire_distance = max(
+                0.1, np.linalg.norm(self.target_location - self.pursuer_location)
+            )
 
             # Normalize it to get a pure direction
-            dir_to_target = (self.target_location - self.pursuer_location) / self.fire_distance
+            dir_to_target = (
+                self.target_location - self.pursuer_location
+            ) / self.fire_distance
 
             # Calculate alignment (1.0 is perfect aim, 0.0 is sideways, -1.0 is completely backward)
             self.shot_alignment = np.dot(self.net_direction, dir_to_target)
@@ -213,18 +260,33 @@ class DroneNetEnv(gym.Env):
                 )
 
                 # 2. Target move
-                self.target_acceleration = tpn.target_accelaration(self.target_acceleration)
+                self.target_acceleration = tpn.target_accelaration(
+                    self.target_acceleration
+                )
                 self.target_location, self.target_velocity, _ = tpn.get_new_location(
-                    self.target_acceleration, self.target_velocity, self.target_location, Constraints.MAX_TARGET_SPEED
+                    self.target_acceleration,
+                    self.target_velocity,
+                    self.target_location,
+                    Constraints.MAX_TARGET_SPEED,
                 )
 
                 #  3. Collision check
                 net_speed = np.linalg.norm(self.net_velocity)
-                net_axis = self.net_velocity / net_speed if net_speed > 1e-6 else self.net_direction
-                
+                net_axis = (
+                    self.net_velocity / net_speed
+                    if net_speed > 1e-6
+                    else self.net_direction
+                )
+
                 net_to_target = self.target_location - self.net_location
                 net_to_target_projection = np.dot(net_axis, net_to_target)
-                target_offset = np.sqrt(max(0.0, np.linalg.norm(net_to_target)**2 - net_to_target_projection**2))
+                target_offset = np.sqrt(
+                    max(
+                        0.0,
+                        np.linalg.norm(net_to_target) ** 2
+                        - net_to_target_projection**2,
+                    )
+                )
 
                 step_distance = net_speed * Constraints.dt
                 # print(f"Step distance: {step_distance}\n"
@@ -232,8 +294,11 @@ class DroneNetEnv(gym.Env):
                 #       f"net_speed: {net_speed}\n"
                 #       f"net_to_target: {net_to_target_projection}\n"
                 #       f"net_radius: {self.net_radius}")
-                if -step_distance < net_to_target_projection < 0.1 and target_offset < self.net_radius:
-                    reward = 30 + 10 * (1 - target_offset/self.net_radius)
+                if (
+                    -step_distance < net_to_target_projection < 0.1
+                    and target_offset < self.net_radius
+                ):
+                    reward = 30 + 10 * (1 - target_offset / self.net_radius)
                     break
                 elif net_to_target_projection < -step_distance:
                     if self.shot_alignment < 0:
@@ -241,7 +306,9 @@ class DroneNetEnv(gym.Env):
                         break
                     else:
                         miss_distance = target_offset - self.net_radius
-                        safe_ratio = np.clip(miss_distance/self.fire_distance, -1.0, 1.0)
+                        safe_ratio = np.clip(
+                            miss_distance / self.fire_distance, -1.0, 1.0
+                        )
                         miss_angle = np.rad2deg(np.arcsin(safe_ratio))
                         reward = -miss_angle / 3
                         break
@@ -271,21 +338,31 @@ class DroneNetEnv(gym.Env):
         if self.window is None and self.render_mode == "human":
             pygame.init()
             pygame.display.init()
-            self.window = pygame.display.set_mode((self.window_size * 3, self.window_size))
+            self.window = pygame.display.set_mode(
+                (self.window_size * 3, self.window_size)
+            )
         if self.clock is None and self.render_mode == "human":
             self.clock = pygame.time.Clock()
 
-        canvas = pygame.Surface((self.window_size*3, self.window_size))
+        canvas = pygame.Surface((self.window_size * 3, self.window_size))
         canvas.fill((255, 255, 255))
 
         # Split the window into three parts
 
         pygame.draw.line(
-            canvas, (0, 0 ,0), (self.window_size, self.window_size), (self.window_size, 0), 5
+            canvas,
+            (0, 0, 0),
+            (self.window_size, self.window_size),
+            (self.window_size, 0),
+            5,
         )
 
         pygame.draw.line(
-            canvas, (0, 0, 0), (self.window_size*2, self.window_size), (self.window_size*2, 0), 5
+            canvas,
+            (0, 0, 0),
+            (self.window_size * 2, self.window_size),
+            (self.window_size * 2, 0),
+            5,
         )
 
         # Define views first (XY XZ YZ)
@@ -323,7 +400,7 @@ class DroneNetEnv(gym.Env):
             )
 
             # Now we draw the expanding net (if it has been fired)
-        if hasattr(self, 'net_location'):
+        if hasattr(self, "net_location"):
 
             # 1. Create a 3D coordinate system for the face of the net
             normal = self.net_direction
@@ -344,8 +421,11 @@ class DroneNetEnv(gym.Env):
 
             disk_points_3d = []
             for angle in angles:
-                point = self.net_location + self.net_radius * np.cos(angle) * u + self.net_radius * np.sin(
-                    angle) * v
+                point = (
+                    self.net_location
+                    + self.net_radius * np.cos(angle) * u
+                    + self.net_radius * np.sin(angle) * v
+                )
                 disk_points_3d.append(point)
 
             # 3. Project and draw the shape on each of the 3 viewing planes

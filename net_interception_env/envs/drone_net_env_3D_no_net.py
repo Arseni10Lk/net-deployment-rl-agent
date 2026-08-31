@@ -10,12 +10,13 @@ class Actions(Enum):
     dont_shoot = 0
     do_shoot = 1
 
+
 class DroneNetEnv(gym.Env):
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 30}
 
     def __init__(self, render_mode=None, marker_size=5, size=512, max_steps=1000):
         self.size = size  # The size of the environment
-        self.marker_size = marker_size # The size of the markers
+        self.marker_size = marker_size  # The size of the markers
         self.window_size = 512  # The size of the PyGame window
 
         self.observation_space = spaces.Dict(
@@ -45,32 +46,44 @@ class DroneNetEnv(gym.Env):
 
         self.max_steps = max_steps
 
-
     def _get_obs(self):
-        return {"distance": np.array([np.linalg.norm(self.target_location - self.pursuer_location)], dtype=np.float32)}
+        return {
+            "distance": np.array(
+                [np.linalg.norm(self.target_location - self.pursuer_location)],
+                dtype=np.float32,
+            )
+        }
 
     def _get_info(self):
-        return {"pursuer location": self.pursuer_location,
-                "pursuer velocity": self.pursuer_velocity,
-                "target location": self.target_location,
-                "target velocity": self.target_velocity}
+        return {
+            "pursuer location": self.pursuer_location,
+            "pursuer velocity": self.pursuer_velocity,
+            "target location": self.target_location,
+            "target velocity": self.target_velocity,
+        }
 
     def reset(self, seed=None, options=None):
         # We need the following line to seed self.np_random
         super().reset(seed=seed)
 
         # Choose the agent's location and velocity uniformly at random
-        self.pursuer_location = self.np_random.uniform(0, self.size, size=3).astype(np.float32)
+        self.pursuer_location = self.np_random.uniform(0, self.size, size=3).astype(
+            np.float32
+        )
         self.pursuer_velocity = self.np_random.uniform(
             -Constraints.MAX_UAV_SPEED, Constraints.MAX_UAV_SPEED, size=3
         ).astype(np.float32)
         # The target's location and velocity are chosen the same way
-        self.target_location = self.np_random.uniform(0, self.size, size=3).astype(np.float32)
+        self.target_location = self.np_random.uniform(0, self.size, size=3).astype(
+            np.float32
+        )
         self.target_velocity = self.np_random.uniform(
             -Constraints.MAX_TARGET_SPEED, Constraints.MAX_TARGET_SPEED, size=3
         ).astype(np.float32)
         self.target_acceleration = self.np_random.uniform(
-            -Constraints.MAX_TARGET_ACCELERATION, Constraints.MAX_TARGET_ACCELERATION, size=3
+            -Constraints.MAX_TARGET_ACCELERATION,
+            Constraints.MAX_TARGET_ACCELERATION,
+            size=3,
         ).astype(np.float32)
 
         observation = self._get_obs()
@@ -95,29 +108,37 @@ class DroneNetEnv(gym.Env):
         # Moving the pursuer
 
         uav_acceleration = tpn.get_tpn_acceleration(
-            self.pursuer_velocity, self.target_velocity,
-            self.pursuer_location, self.target_location
+            self.pursuer_velocity,
+            self.target_velocity,
+            self.pursuer_location,
+            self.target_location,
         )
 
         uav_location, self.pursuer_velocity = tpn.get_new_location(
-            uav_acceleration, self.pursuer_velocity, self.pursuer_location, Constraints.MAX_UAV_SPEED
+            uav_acceleration,
+            self.pursuer_velocity,
+            self.pursuer_location,
+            Constraints.MAX_UAV_SPEED,
         )
 
-        self.pursuer_location = np.clip(
-            uav_location, 0, self.size - 1
-        ).astype(np.float32)
+        self.pursuer_location = np.clip(uav_location, 0, self.size - 1).astype(
+            np.float32
+        )
 
         # Moving the target
 
         self.target_acceleration = tpn.target_accelaration(self.target_acceleration)
 
         new_target_location, self.target_velocity = tpn.get_new_location(
-            self.target_acceleration, self.target_velocity, self.target_location, Constraints.MAX_TARGET_SPEED
+            self.target_acceleration,
+            self.target_velocity,
+            self.target_location,
+            Constraints.MAX_TARGET_SPEED,
         )
 
-        self.target_location = np.clip(
-            new_target_location, 0, self.size - 1
-        ).astype(np.float32)
+        self.target_location = np.clip(new_target_location, 0, self.size - 1).astype(
+            np.float32
+        )
 
         if self.timestep >= self.max_steps:
             truncated = True
@@ -131,7 +152,7 @@ class DroneNetEnv(gym.Env):
                 terminated = True
                 reward = -1
         elif truncated:
-                reward = -1
+            reward = -1
 
         observation = self._get_obs()
         info = self._get_info()
@@ -149,21 +170,31 @@ class DroneNetEnv(gym.Env):
         if self.window is None and self.render_mode == "human":
             pygame.init()
             pygame.display.init()
-            self.window = pygame.display.set_mode((self.window_size * 3, self.window_size))
+            self.window = pygame.display.set_mode(
+                (self.window_size * 3, self.window_size)
+            )
         if self.clock is None and self.render_mode == "human":
             self.clock = pygame.time.Clock()
 
-        canvas = pygame.Surface((self.window_size*3, self.window_size))
+        canvas = pygame.Surface((self.window_size * 3, self.window_size))
         canvas.fill((255, 255, 255))
 
         # Split the window into three parts
 
         pygame.draw.line(
-            canvas, (0, 0 ,0), (self.window_size, self.window_size), (self.window_size, 0), 5
+            canvas,
+            (0, 0, 0),
+            (self.window_size, self.window_size),
+            (self.window_size, 0),
+            5,
         )
 
         pygame.draw.line(
-            canvas, (0, 0, 0), (self.window_size*2, self.window_size), (self.window_size*2, 0), 5
+            canvas,
+            (0, 0, 0),
+            (self.window_size * 2, self.window_size),
+            (self.window_size * 2, 0),
+            5,
         )
 
         # Define views first (XY XZ YZ)
