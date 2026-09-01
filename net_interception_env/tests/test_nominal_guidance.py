@@ -11,12 +11,11 @@ def test_compute_bgpn_acceleration_no_target_accel():
     r = np.array([10.0, 0.0, 0.0])
 
     a_cmd = compute_bgpn_acceleration(
-        v_c, omega_los, a_t, r, N=4.0, k_axial=2.0, v_close_des=15.0
+        v_c, omega_los, a_t, r, N=4.0, k_axial=2.0, v_close_max=15.0
     )
 
-    # a_png = 4.0 * cross([-10, 5, 0], [0, 0, 0.5]) = 4.0 * [2.5, 5.0, 0.0] = [10.0, 20.0, 0.0]
-    # closing speed = np.dot([10, -5, 0], [1, 0, 0]) = 10.0
-    # a_axial = 2.0 * (15 - 10) * [1, 0, 0] = [10.0, 0.0, 0.0]
-    # total = [20.0, 20.0, 0.0]
-    expected_a_cmd = np.array([20.0, 20.0, 0.0])
+    # a_png = 4.0 * 10.0 * cross([0, 0, 0.5], [1, 0, 0]) = [0.0, 20.0, 0.0]
+    # a_axial = 2.0 * (15.0 - 10.0) * [1, 0, 0] = [10.0, 0.0, 0.0]
+    # total expected: [10.0, 20.0, 0.0]
+    expected_a_cmd = np.array([10.0, 20.0, 0.0])
     np.testing.assert_allclose(a_cmd, expected_a_cmd)
