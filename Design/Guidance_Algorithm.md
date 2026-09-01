@@ -75,11 +75,31 @@ To achieve continuous, collision-free engagement without introducing state-space
 
 ### 3.1 Nominal Guidance Law: Blended Generalized Proportional Navigation (B-GPN)
 
-The unconstrained nominal guidance command $`\vec{a}_{nom}`$ is synthesized using Blended Generalized Proportional Navigation (B-GPN). B-GPN augments classic proportional navigation by incorporating target acceleration estimates along the LOS plane, maintaining robust closing geometry against maneuvering evaders:
+The unconstrained nominal guidance command $`\vec{a}_{nom}`$ is synthesized using an augmented Blended Generalized Proportional Navigation (B-GPN). It unifies True Proportional Navigation (TPN) for lateral tracking, target acceleration feedforward for evasion compensation, and a distance-proportional velocity controller for smooth axial approach:
 
-$$\vec{a}_{nom} = N \left( \vec{v}_{rel} \times \vec{\omega}_{LOS} \right) + \frac{N}{2} \vec{a}_{t,\perp}$$
+$$\vec{a}_{nom} = \vec{a}_{PNG} + \vec{a}_{FF} + \vec{a}_{axial}$$
 
-where $`N \in [3.0, 5.0]`$ is the non-dimensional navigation constant, $`\vec{v}_{rel} = -\vec{v}`$, and $`\vec{a}_{t,\perp}`$ is the component of estimated target acceleration normal to the Line-of-Sight vector.
+#### 3.1.1 True Proportional Navigation (Lateral Tracking)
+To prevent the steering command from erroneously flipping direction if the interceptor is temporarily blown backwards (negative closing speed), we utilize absolute closing speed $`V_{c}`$:
+
+$$\vec{a}_{PNG} = N \max(V_{min}, \vert{}V_{c}\vert{}) (\vec{\omega}_{LOS} \times \hat{r})$$
+
+where $`N \in [3.0, 5.0]`$ is the navigation constant, $`\hat{r} = \vec{r}/\Vert{}\vec{r}\Vert{}`$ is the LOS unit vector, and $`V_{c} = -\dot{R}`$. 
+
+#### 3.1.2 Bounded Acceleration Feedforward (Evasion Compensation)
+To compensate for aggressive target maneuvers without saturating the interceptor's physical motors, target acceleration is fed forward but strictly bounded:
+
+$$\vec{a}_{FF} = \frac{N}{2} \text{clip}(\vec{a}_{t,\perp}, a_{cap})$$
+
+where $`\vec{a}_{t,\perp}`$ is target acceleration normal to the LOS, and $`a_{cap}`$ (e.g. $`15.0\text{ m/s}^2`$) prevents massive dataset noise spikes (FPV acrobatics) from overwhelming the guidance law.
+
+#### 3.1.3 Distance-Proportional Axial Closure
+Instead of ramming the CBF safety barrier at maximum speed, a proportional controller smoothly bleeds off the desired closing speed as the drone approaches a safe standoff orbit ($`d_{safe}`$):
+
+$$V_{des}(R) = \min\Big(V_{max}, k_{p} \cdot \max(0, R - d_{safe})\Big)$$
+$$\vec{a}_{axial} = k_{axial} (V_{des}(R) - V_{c}) \hat{r}$$
+
+This formulation guarantees that the nominal guidance naturally cooperates with the HOCBF barrier, allowing the QP solver to refine the command rather than fighting against an impossible $`15\text{ m/s}`$ collision course.
 
 ### 3.2 High-Order Control Barrier Function (HOCBF) Design
 
