@@ -92,16 +92,30 @@ def run_physics_simulation(
         else:
             raise ValueError("Unsupported dataset format. Use .csv or .hdf5")
 
-        dt = traj.dt
+        dataset_dt = traj.dt
         total_steps = len(traj.time)
-        max_steps = int(duration / dt)
-        start_step = int(30.0 / dt) if total_steps > int(45.0 / dt) else 0
-
-        steps = min(max_steps, total_steps - start_step)
-        t_slice = traj.time[start_step : start_step + steps]
-        p_t_slice = traj.position[start_step : start_step + steps]
-        v_t_slice = traj.velocity[start_step : start_step + steps]
-        a_t_slice = traj.acceleration[start_step : start_step + steps]
+        
+        start_step = int(30.0 / dataset_dt) if total_steps > int(45.0 / dataset_dt) else 0
+        end_step = min(start_step + int(duration / dataset_dt), total_steps)
+        
+        orig_t = traj.time[start_step:end_step]
+        orig_p = traj.position[start_step:end_step]
+        orig_v = traj.velocity[start_step:end_step]
+        orig_a = traj.acceleration[start_step:end_step]
+        
+        # Enforce 400 Hz physics simulation regardless of dataset framerate
+        dt = 0.0025
+        t_slice = np.arange(orig_t[0], orig_t[-1], dt)
+        
+        p_t_slice = np.zeros((len(t_slice), 3))
+        v_t_slice = np.zeros((len(t_slice), 3))
+        a_t_slice = np.zeros((len(t_slice), 3))
+        for dim in range(3):
+            p_t_slice[:, dim] = np.interp(t_slice, orig_t, orig_p[:, dim])
+            v_t_slice[:, dim] = np.interp(t_slice, orig_t, orig_v[:, dim])
+            a_t_slice[:, dim] = np.interp(t_slice, orig_t, orig_a[:, dim])
+            
+        steps = len(t_slice)
 
         # Initial conditions: interceptor spawns behind target
         v_init_dir = v_t_slice[0] / (np.linalg.norm(v_t_slice[0]) + 1e-6)
