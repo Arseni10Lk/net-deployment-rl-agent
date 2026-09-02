@@ -43,3 +43,5 @@ The target drone trajectories used in this environment are derived from the foll
   month = {June}
 }
 ```
+
+Current status of the proejct: Paused
